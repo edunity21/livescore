@@ -331,11 +331,20 @@ main{max-width:calc(var(--wide) + var(--pad)*2);margin:0 auto;padding:30px var(-
 .ed-grp.lens button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ed-grp .pl{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ed-grp .pl.playing{background:var(--red);border-color:var(--red)}
-.editor:not(.has-sel) .ed-grp:not(:last-child) button{opacity:.45}
+.editor:not(.has-sel) .ed-grp:not(.ed-plays):not(.ed-view):not(:has([data-e=undo])) button{opacity:.45}
 .ed-score{padding:6px 2px;cursor:default}
 .ed-score .abcjs-note,.ed-score .abcjs-rest{cursor:pointer}
 .ed-score .abcjs-note:hover path,.ed-score .abcjs-rest:hover path{fill:var(--brand-2)}
 .ed-score .ed-on path,.ed-score .ed-on{fill:var(--brand)!important;stroke:var(--brand)}
+.ed-score{position:relative}
+.editor{min-width:0;max-width:100%}
+.ed-score.scrollview{width:100%!important;max-width:100%;overflow-x:auto;overflow-y:hidden;scroll-behavior:auto;padding-bottom:10px}
+.score.scrollview svg{max-width:none}
+.ed-cursor{position:absolute;left:0;top:0;width:3px;border-radius:3px;background:linear-gradient(180deg,rgba(209,122,34,.95),rgba(209,122,34,.55));box-shadow:0 0 0 5px rgba(209,122,34,.13),0 0 18px rgba(209,122,34,.35);pointer-events:none;z-index:5;will-change:transform}
+.ed-score .ed-play path,.ed-score .ed-play{fill:var(--orange)!important;stroke:var(--orange)}
+.ed-view button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ed-grp .pl2{background:#fff}
+.editor.following .ed-bar{border-color:#efcfa9}
 
 /* 7 */
 .card.empty p{margin:6px 0 14px;color:var(--ink-2)}
