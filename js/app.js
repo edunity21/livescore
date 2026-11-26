@@ -99,7 +99,9 @@ function loop() {
 // ── 피아노 롤 ──
 function drawRoll(cv, o) {
   const dpr = window.devicePixelRatio || 1;
-  const wrap = cv.parentElement, H = +cv.getAttribute('height');
+  const wrap = cv.parentElement;
+  if (!cv.dataset.h) cv.dataset.h = cv.getAttribute('height');
+  const H = +cv.dataset.h;
   const z = o.zoom || 1;
   const per = o.bars > 16 ? (window.innerWidth < 700 ? 72 : 96) : (wrap.clientWidth - 40) / o.bars;
   const need = o.bars > 16 || z > 1 ? Math.ceil(o.bars * per * z + 40) : 0;
