@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, pc, toPieces, lyricFlow } from './core.js';
+import { BAR, KEYS, pc, toPieces, lyricFlow } from './core.js?v=6';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -91,7 +91,7 @@ export function melodyVoice(melody, lyricsLines, chords, name = '노래', id = '
 export function renderAbc(el, abc, opts = {}) {
   if (!window.ABCJS) { el.textContent = '악보 그리기 도구를 불러오지 못했습니다.'; return null; }
   const r = window.ABCJS.renderAbc(el, abc, {
-    add_classes: true, responsive: 'resize', paddingtop: 6, paddingbottom: 6, paddingleft: 4, paddingright: 4,
+    add_classes: true, responsive: opts.fixed ? undefined : 'resize', paddingtop: 6, paddingbottom: 6, paddingleft: 4, paddingright: 4,
     staffwidth: opts.staffwidth || 740, scale: opts.scale || 1, clickListener: opts.click, foregroundColor: '#1a1c1f', selectionColor: '#1F4D3A', dragging: false,
     format: { vocalfont: 'Pretendard 13', gchordfont: 'Pretendard 12' },
   });

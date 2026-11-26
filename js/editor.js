@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js';
-import * as SC from './score.js';
-import * as SND from './sound.js';
+import * as C from './core.js?v=6';
+import * as SC from './score.js?v=6';
+import * as SND from './sound.js?v=6';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -18,20 +18,31 @@ export function createEditor(host, opts) {
       <div class="ed-tools">
         <div class="ed-grp" aria-label="음 높이"><button type="button" data-e="up" title="반음 위 (↑)">▲</button><button type="button" data-e="down" title="반음 아래 (↓)">▼</button><button type="button" data-e="oup" title="옥타브 위 (Shift+↑)">8va</button><button type="button" data-e="odown" title="옥타브 아래 (Shift+↓)">8vb</button></div>
         <div class="ed-grp lens" aria-label="음 길이">${LENS.map(([d, n]) => `<button type="button" data-len="${d}">${n}</button>`).join('')}</div>
-        <div class="ed-grp"><button type="button" data-e="del" title="지우기 (Delete)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button><button type="button" data-e="play" class="pl" title="여기부터 듣기">▶ 여기부터</button></div>
+        <div class="ed-grp"><button type="button" data-e="del" title="지우기 (Delete)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button></div>
+        <div class="ed-grp ed-plays"><button type="button" data-e="playall" class="pl" title="처음부터 듣기 (Space)">▶ 처음부터</button><button type="button" data-e="play" class="pl2" title="고른 마디부터 듣기">▶ 여기부터</button></div>
+        <div class="ed-grp ed-view" role="group" aria-label="악보 보기"><button type="button" data-view="page">페이지 보기</button><button type="button" data-view="scroll">스크롤 보기</button></div>
       </div>
     </div>
-    <div class="score ed-score"></div>`;
+    <div class="score ed-score"><div class="ed-cursor" hidden></div></div>`;
   const scoreEl = host.querySelector('.ed-score');
-  const E = { marks: [], tune: null, sel: null, hist: [], model: null };
+  const E = { marks: [], tune: null, sel: null, hist: [], model: null, view: 'page', tl: null, follow: false };
+  try { E.view = localStorage.getItem('livescore-view') || 'page'; } catch (x) { }
+  const cursor = () => scoreEl.querySelector('.ed-cursor');
 
   function render() {
     E.model = opts.model();
     const m = E.model;
     if (!m || !m.voices.length) { scoreEl.innerHTML = '<p class="empty">아직 악보가 없어요.</p>'; return; }
-    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: m.perLine || 4, voices: m.voices, showTitle: !!m.showTitle });
+    const scroll = E.view === 'scroll';
+    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: scroll ? m.bars : (m.perLine || 4), voices: m.voices, showTitle: !!m.showTitle && !scroll });
     E.marks = marks;
-    E.tune = SC.renderAbc(scoreEl, abc, { click: onClick, staffwidth: opts.staffwidth || 980 });
+    const cur = cursor(); if (cur) cur.remove();
+    scoreEl.classList.toggle('scrollview', scroll);
+    host.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === E.view));
+    const w = scroll ? Math.max(900, m.bars * Math.max(170, 40 + avgPerBar(marks, m.bars) * 26)) : (opts.staffwidth || 980);
+    E.tune = SC.renderAbc(scoreEl, abc, { click: onClick, staffwidth: w, fixed: scroll });
+    const c = document.createElement('div'); c.className = 'ed-cursor'; c.hidden = true; scoreEl.appendChild(c);
+    E.tl = null;
     paintSel();
   }
   const voiceOf = vi => E.model.voices[vi];
@@ -79,7 +90,7 @@ export function createEditor(host, opts) {
     if (fn() === false) return;
     E.hist.push(before); if (E.hist.length > 80) E.hist.shift();
     opts.onChange && opts.onChange();
-    render();
+    render(); E.tl = null;
   }
   function sorted(v) { return [...v.notes].sort((a, b) => a.s - b.s); }
   function room(v, s, self) { const nx = sorted(v).find(n => n !== self && n.s > s); return (nx ? nx.s : E.model.bars * C.BAR) - s; }
@@ -145,19 +156,22 @@ export function createEditor(host, opts) {
   host.querySelector('.ed-bar').addEventListener('click', e => {
     active = api;
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.view) return setView(b.dataset.view);
     if (b.dataset.len) return setLen(+b.dataset.len);
     const a = b.dataset.e;
     if (a === 'undo') return undo();
+    if (a === 'playall') { opts.onPlay && opts.onPlay(0, b); if (SND.isPlaying()) follow(); else endFollow(); return; }
     if (!E.sel && a !== 'play') return opts.toast && opts.toast('먼저 악보에서 음표를 눌러 골라요');
     if (a === 'up') pitch(1); if (a === 'down') pitch(-1);
     if (a === 'oup') pitch(12); if (a === 'odown') pitch(-12);
     if (a === 'del') del();
-    if (a === 'play') { const at = E.sel ? Math.floor((E.sel.ref ? E.sel.ref.s : E.sel.s) / C.BAR) * C.BAR : 0; opts.onPlay && opts.onPlay(at, b); }
+    if (a === 'play') { const at = E.sel ? Math.floor((E.sel.ref ? E.sel.ref.s : E.sel.s) / C.BAR) * C.BAR : 0; opts.onPlay && opts.onPlay(at, b); if (SND.isPlaying()) follow(); else endFollow(); }
   });
   host.addEventListener('pointerdown', () => { active = api; });
   function onKey(e) {
     if (active !== api || !host.offsetParent || e.target.closest('input,textarea,select')) return false;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return true; }
+    if (e.key === ' ') { e.preventDefault(); host.querySelector(E.sel ? '[data-e=play]' : '[data-e=playall]').click(); return true; }
     if (!E.sel) return false;
     if (e.key === 'ArrowUp') { e.preventDefault(); pitch(e.shiftKey ? 12 : 1); return true; }
     if (e.key === 'ArrowDown') { e.preventDefault(); pitch(e.shiftKey ? -12 : -1); return true; }
@@ -168,6 +182,77 @@ export function createEditor(host, opts) {
     if (e.key === 'Escape') { E.sel = null; paintSel(); return true; }
     return false;
   }
-  const api = { render, onKey, midiPitch, clear: () => { E.sel = null; E.hist = []; }, host, get sel() { return E.sel; } };
+  function avgPerBar(marks, bars) {
+    const per = new Map(); marks.forEach(m => { const k = m.vi + ':' + m.bar; per.set(k, (per.get(k) || 0) + 1); });
+    let mx = 0; for (let b = 0; b < bars; b++) { let t = 0; E.model.voices.forEach((v, vi) => { t = Math.max(t, per.get(vi + ':' + b) || 0); }); mx += t; }
+    return mx / Math.max(1, bars);
+  }
+  // 재생 위치(16분음표) → 악보 위 x 좌표, 줄
+  function timeline() {
+    const cr = scoreEl.getBoundingClientRect(), sl = scoreEl.scrollLeft, st = scoreEl.scrollTop;
+    const pts = new Map(), lines = new Map();
+    const box = el => { const r = el.getBoundingClientRect(); return { x: r.left - cr.left + sl, y: r.top - cr.top + st, r: r.right - cr.left + sl, b: r.bottom - cr.top + st }; };
+    E.marks.forEach(m => {
+      const el = scoreEl.querySelector(`.abcjs-v${m.vi}.abcjs-mm${m.bar}.abcjs-n${m.k}`); if (!el) return;
+      const lc = [...el.classList].find(c => /^abcjs-l\d+$/.test(c)); const line = lc ? +lc.slice(7) : 0;
+      const b = box(el); const cur = pts.get(m.q.s);
+      if (!cur || b.x < cur.x) pts.set(m.q.s, { s: m.q.s, x: b.x, line });
+      m.el = el;
+    });
+    scoreEl.querySelectorAll('.abcjs-staff, .abcjs-note, .abcjs-rest, .abcjs-bar').forEach(el => {
+      const lc = [...el.classList].find(c => /^abcjs-l\d+$/.test(c)); if (!lc) return;
+      const line = +lc.slice(7), b = box(el), L = lines.get(line);
+      if (!L) lines.set(line, { top: b.y, bot: b.b, right: b.r }); else { L.top = Math.min(L.top, b.y); L.bot = Math.max(L.bot, b.b); L.right = Math.max(L.right, b.r); }
+    });
+    E.tl = { pts: [...pts.values()].sort((a, b) => a.s - b.s), lines };
+  }
+  function place(pos) {
+    if (!E.tl) timeline();
+    const { pts, lines } = E.tl; if (!pts.length) return;
+    let i = 0; while (i < pts.length - 1 && pts[i + 1].s <= pos) i++;
+    const a = pts[i], b = pts[i + 1];
+    const L = lines.get(a.line) || { top: 0, bot: scoreEl.scrollHeight, right: a.x + 40 };
+    const xEnd = b && b.line === a.line ? b.x : L.right;
+    const sEnd = b ? b.s : E.model.bars * C.BAR;
+    const t = Math.max(0, Math.min(1, (pos - a.s) / Math.max(1, sEnd - a.s)));
+    const x = a.x + (xEnd - a.x) * t;
+    const c = cursor(); c.hidden = false;
+    c.style.transform = `translate(${x - 1}px, ${L.top - 6}px)`; c.style.height = (L.bot - L.top + 12) + 'px';
+    // 지금 나는 음 강조
+    scoreEl.querySelectorAll('.ed-play').forEach(e => e.classList.remove('ed-play'));
+    E.marks.forEach(m => { if (m.el && m.q.p != null && m.q.s <= pos && pos < m.q.s + m.q.d) m.el.classList.add('ed-play'); });
+    // 화면 따라가기
+    if (E.view === 'scroll') { scoreEl.scrollLeft = Math.max(0, x - scoreEl.clientWidth * .3); }
+    else if (E.lastLine !== a.line) {
+      E.lastLine = a.line;
+      const top = scoreEl.getBoundingClientRect().top + window.scrollY + L.top;
+      const hdr = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 120;
+      const bar = host.querySelector('.ed-bar').offsetHeight || 0;
+      const want = top - hdr - bar - 40;
+      if (top - window.scrollY < hdr + bar + 20 || top + (L.bot - L.top) - window.scrollY > window.innerHeight - 110) window.scrollTo({ top: want, behavior: 'smooth' });
+    }
+  }
+  function endFollow() {
+    E.follow = false; E.lastLine = null;
+    const c = cursor(); if (c) c.hidden = true;
+    const clr = () => scoreEl.querySelectorAll('.ed-play').forEach(e => e.classList.remove('ed-play'));
+    clr(); requestAnimationFrame(clr);
+    host.classList.remove('following');
+  }
+  function follow() {
+    E.follow = true; E.lastLine = null; E.tl = null; host.classList.add('following');
+    const tick = () => {
+      if (!E.follow) return;
+      const pos = SND.position();
+      if (pos == null || !SND.isPlaying()) { endFollow(); return; }
+      place(pos); requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(tick));
+  }
+  function setView(v) {
+    E.view = v; try { localStorage.setItem('livescore-view', v); } catch (x) { }
+    const was = E.follow; render(); if (was) { E.tl = null; }
+  }
+  const api = { render, onKey, midiPitch, follow, setView, clear: () => { E.sel = null; E.hist = []; }, host, get sel() { return E.sel; } };
   return api;
 }

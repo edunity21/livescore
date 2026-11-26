@@ -1,10 +1,10 @@
 // LIVE SCORE · 화면
-import * as C from './core.js';
-import * as SND from './sound.js';
-import * as MIDI from './midi.js';
-import * as SC from './score.js';
+import * as C from './core.js?v=6';
+import * as SND from './sound.js?v=6';
+import * as MIDI from './midi.js?v=6';
+import * as SC from './score.js?v=6';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js';
+import { createEditor, activeEditor } from './editor.js?v=6';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -755,7 +755,7 @@ function versionsUI() {
 }
 $('#vers').addEventListener('click', e => {
   const p = e.target.closest('[data-play]'), c = e.target.closest('[data-choose]');
-  if (p) { const v = S.arr.versions.find(x => x.id === p.dataset.play); playWith(p, verTracks(v, v.vocal), { tempo: v.bpm }); }
+  if (p) { const v = S.arr.versions.find(x => x.id === p.dataset.play); playWith(p, verTracks(v, v.vocal), { tempo: v.bpm }); if (v.id === U.edVer && SND.isPlaying()) ed6.follow(); }
   const ed = e.target.closest('[data-editv]');
   if (ed) { U.edVer = ed.dataset.editv; ed6.clear(); showEditor6(); $('#edCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   if (c) {
@@ -1068,6 +1068,7 @@ $('#exMp3All').onclick = e => mp3(e.currentTarget, verTracks({ parts: finalParts
 $('#playFirst').onclick = e => { const v = chosen(); if (v) playWith(e.currentTarget, verTracks({ parts: alignedParts(v) }, alignedVocal(v))); };
 $('#playFinal').onclick = e => {
   playWith(e.currentTarget, verTracks({ parts: finalParts().parts }, S.melody));
+  if (SND.isPlaying()) ed8.follow();
 };
 $('#newVer').onclick = () => {
   const v = chosen(), box = $('#newVerBox'); box.hidden = false;
