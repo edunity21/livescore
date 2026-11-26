@@ -100,15 +100,17 @@ function loop() {
 function drawRoll(cv, o) {
   const dpr = window.devicePixelRatio || 1;
   const wrap = cv.parentElement, H = +cv.getAttribute('height');
-  const need = o.bars > 16 ? Math.ceil(o.bars * (window.innerWidth < 700 ? 72 : 96) + 40) : 0;
+  const z = o.zoom || 1;
+  const per = o.bars > 16 ? (window.innerWidth < 700 ? 72 : 96) : (wrap.clientWidth - 40) / o.bars;
+  const need = o.bars > 16 || z > 1 ? Math.ceil(o.bars * per * z + 40) : 0;
   if (need > wrap.clientWidth) cv.style.width = need + 'px'; else cv.style.width = '';
   const W = Math.max(280, need > wrap.clientWidth ? need : cv.clientWidth);
   if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; cv.style.height = H + 'px'; }
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
   const from = (o.from || 0) * C.BAR, bars = o.bars, U16 = bars * C.BAR;
   const all = o.layers.flatMap(l => l.notes).filter(n => n && n.p != null);
-  let lo = all.length ? Math.min(...all.map(n => n.p)) - 2 : 57, hi = all.length ? Math.max(...all.map(n => n.p)) + 2 : 79;
-  while (hi - lo < 14) { lo--; hi++; }
+  let lo = all.length ? Math.min(...all.map(n => n.p)) - 1 : 57, hi = all.length ? Math.max(...all.map(n => n.p)) + 1 : 79;
+  while (hi - lo < 12) { lo--; hi++; }
   const L = 34, T = o.lyr ? 34 : 18, R = 6, B = 6;
   const x = u => L + ((u - from) / U16) * (W - L - R);
   const rowH = (H - T - B) / (hi - lo + 1);
@@ -138,18 +140,30 @@ function drawRoll(cv, o) {
     mel: { f: '#111', s: '#111' }, rec: { f: '#31684F', s: '#31684F' }, same: { f: '#9b9b9b', s: '#9b9b9b' }, diff: { f: '#D9822B', s: '#B5641A' },
     mine: { f: 'rgba(0,0,0,0)', s: '#111' }, sel: { f: '#31684F', s: '#31684F' },
   };
+  const minW = (W - L - R) / U16 * .5;
   for (const l of o.layers) {
     const st = ST[l.kind] || ST.mel;
+    const solid = !['raw', 'q', 'mine'].includes(l.kind);
     for (const n of l.notes) {
       if (!n || n.p == null) continue;
       const s = n.s, e = n.s + Math.max(.25, n.d);
       if (e < from || s > from + U16) continue;
-      const x0 = x(Math.max(s, from)), x1 = x(Math.min(e, from + U16));
+      const x0 = x(Math.max(s, from)) + 1, x1 = x(Math.min(e, from + U16)) - 2;
+      const w = Math.max(minW > 3 ? 3 : 2, x1 - x0);
       const kind = n.kind ? (ST[n.kind] || st) : (o.sel && n.id === o.sel ? ST.sel : st);
-      g.fillStyle = kind.f; g.strokeStyle = kind.s; g.lineWidth = l.kind === 'mine' ? 2 : 1;
-      const yy = y(n.p) + 1, hh = Math.max(3, rowH - 2);
-      g.fillRect(x0, yy, Math.max(2, x1 - x0 - 1), hh);
-      g.strokeRect(x0 + .5, yy + .5, Math.max(2, x1 - x0 - 2), hh - 1);
+      const hh = Math.max(4, Math.min(rowH - 2, 16)), yy = y(n.p) + (rowH - hh) / 2;
+      g.fillStyle = kind.f;
+      if (g.roundRect) { g.beginPath(); g.roundRect(x0, yy, w, hh, 2); g.fill(); } else g.fillRect(x0, yy, w, hh);
+      g.strokeStyle = kind.s; g.lineWidth = l.kind === 'mine' ? 2 : 1;
+      if (!solid || l.kind === 'mine') { g.strokeRect(x0 + .5, yy + .5, w - 1, hh - 1); }
+      // 음의 시작: 진한 머리
+      g.fillStyle = solid ? 'rgba(0,0,0,.45)' : kind.s;
+      g.fillRect(x0, yy, Math.min(3, w), hh);
+      // 칸이 넉넉하면 음 이름
+      if ((solid || l.kind === 'q') && w >= 22 && hh >= 10) {
+        g.fillStyle = solid ? '#fff' : '#1d3f9e'; g.font = `700 ${Math.min(11, hh - 2)}px "Noto Sans KR",sans-serif`; g.textBaseline = 'middle';
+        g.save(); g.beginPath(); g.rect(x0, yy, w, hh); g.clip(); g.fillText(C.solName(n.p, S.key), x0 + 5, yy + hh / 2 + .5); g.restore();
+      }
     }
     if (l.links) { g.strokeStyle = 'rgba(45,91,215,.5)'; g.lineWidth = 1; l.links.forEach(k => { g.beginPath(); g.moveTo(x(k.from), y(k.p) + rowH / 2); g.lineTo(x(k.to), y(k.p) + rowH / 2); g.stroke(); }); }
   }
@@ -382,6 +396,14 @@ function fillFrom() {
   sel.innerHTML = Array.from({ length: lines }, (_, i) => `<option value="${i * 2}">${i + 1}줄 (${i * 2 + 1}마디)부터</option>`).join('');
   sel.value = String(fromBar());
 }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-zoom]'); if (!b) return;
+  const steps = [1, 1.5, 2, 3, 4];
+  let i = steps.indexOf(U.zoom || 1); i = Math.max(0, Math.min(steps.length - 1, i + (+b.dataset.zoom)));
+  U.zoom = steps[i];
+  $$('.zoom-v').forEach(x => { x.textContent = Math.round(U.zoom * 100) + '%'; });
+  drawStep();
+});
 $('#recFrom').onchange = e => {
   U.recFrom = +e.target.value;
   if (S.mode === 'mouse') { U.mpos = U.recFrom * C.BAR; mposLabel(); }
@@ -411,7 +433,7 @@ function drawRoll3(play) {
   } else if (S.mode === 'mouse' || !S.take) layers.push({ kind: 'mel', notes: S.melody });
   else { const tu = 60 / S.take.tempo / 4; layers.push({ kind: 'rec', notes: S.take.events.map(e => ({ p: e.p, s: e.t / tu, d: e.d / tu })) }); }
   const req = U.scrollReq; U.scrollReq = null;
-  drawRoll(cv, { bars, layers, lyr: true, play, follow: play != null, scrollTo: req });
+  drawRoll(cv, { bars, layers, lyr: true, play, follow: play != null, scrollTo: req, zoom: U.zoom || 1 });
 }
 function startRec() {
   const c = SND.audio();
@@ -543,7 +565,7 @@ function drawRoll4(play) {
     layers.push({ kind: 'raw', notes: raw, links });
   }
   layers.push({ kind: 'q', notes: S.melody });
-  drawRoll(cv, { bars: totalBars(), layers, play, sel: U.sel, follow: play != null });
+  drawRoll(cv, { bars: totalBars(), layers, play, sel: U.sel, follow: play != null, zoom: U.zoom || 1 });
 }
 function noteChips() {
   const box = $('#noteChips');
