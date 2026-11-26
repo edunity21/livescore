@@ -9,7 +9,7 @@
 <meta property="og:description" content="건반으로 연주한 선율이 그 자리에서 악보가 됩니다. 가사·박·편곡을 학생이 직접 정하고 고친 이유를 남깁니다.">
 <meta name="theme-color" content="#111111">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=1">
+<link rel="stylesheet" href="app.css?v=2">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -105,7 +105,7 @@
       <h2>노랫말 쓰기</h2>
       <div id="lyricRows" class="lyric-rows"></div>
       <div class="row"><button class="btn ghost" type="button" id="addLine">+ 줄 추가</button></div>
-      <ul class="tips"><li>한 줄은 노래의 한 문장이에요.</li><li>띄어쓰기는 그대로 둬요.</li><li>줄마다 글자 수가 비슷하면(8~11자) 부르기 쉬워요.</li><li>가장 하고 싶은 말이 담긴 줄에 <b>후렴</b> 표시를 해요.</li></ul>
+      <ul class="tips"><li>한 줄은 노래의 한 문장이에요.</li><li>띄어쓰기는 그대로 둬요.</li><li>줄마다 글자 수가 비슷하면(8~11자) 부르기 쉬워요.</li><li>가장 하고 싶은 말이 담긴 줄에 <b>후렴</b> 표시를 해요.</li><li>여러 줄을 복사해 붙여 넣으면 줄마다 나뉘어 들어가요. 최대 50줄(100마디).</li></ul>
     </div>
     <div class="card">
       <h2>음절 나누기 · 마디 배치</h2>
@@ -125,6 +125,7 @@
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
       <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조</option><option value="G">사장조</option><option value="F">바장조</option><option value="D">라장조</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
+      <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
       <div class="ctl rec">
         <button class="btn rec-btn" type="button" id="recBtn">● 녹음</button>
         <button class="btn ghost" type="button" id="playTake">▶ 들어 보기</button>
@@ -323,6 +324,7 @@
     <p>갤럭시 탭 카메라로 찍으면 지금 악보가 열립니다. 태블릿에서는 보고, 듣고, 따라 부를 수 있어요.</p>
     <div class="qr" id="qrBox"></div>
     <p class="qr-url" id="qrUrl"></p>
+    <p class="hint" id="qrNote"></p>
     <div class="row"><button class="btn ghost" type="button" id="copyLink">주소 복사</button><button class="btn" type="button" data-close>닫기</button></div>
   </div>
 </dialog>
@@ -337,6 +339,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="lib/abcjs-basic-min.js"></script>
-<script type="module" src="js/app.js?v=1"></script>
+<script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>
