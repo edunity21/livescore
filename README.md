@@ -13,9 +13,9 @@
 3. 선율 연주 — 예비박 뒤 실시간 기록(피아노 롤), 화면 건반·마우스 입력
 4. 박 맞춤 — 4분·8분·16분음표 단위로 맞추고 음표 고치기
 5. 가사 붙이기 — 음표 아래 가사, 끌어 옮기기, 두 글자 붙이기·늘이기, 줄별 확인
-6. AI 편곡 — 자동 편곡(연습·시연용, 규칙 기반) 또는 수노 Studio MIDI 불러오기
+6. AI 편곡 — 자동 편곡(연습·시연용, 규칙 기반) 또는 수노 Studio 스템 MIDI를 끌어다 놓으면 박을 맞춘 악보로 바로 바뀌고, 음표를 눌러 고치는 악보 편집
 7. 비교·수정 — 바뀐 마디 표시, 듣고 고르기, 고친 이유 한 줄 기록
-8. 악보 완성 — 밴드 총보, MusicXML(뮤즈스코어)·MIDI·PDF·선율 WAV 내보내기
+8. 악보 완성 — 고칠 수 있는 밴드 총보, MusicXML(뮤즈스코어)·MIDI·PDF·MP3(수노 Upload Audio용) 내보내기
 
 ## 쓰는 환경
 
@@ -27,5 +27,7 @@
 
 - [abcjs](https://github.com/paulrosen/abcjs) — 악보 그리기 (MIT)
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) — QR (MIT)
+- [lamejs](https://github.com/zhuker/lamejs) — 브라우저 안 MP3 만들기 (LGPL-3.0, LAME 프로젝트 https://lame.sourceforge.io 기반, lib/lame.min.js 별도 파일)
+- [Pretendard](https://github.com/orioncactus/pretendard) — 글꼴 (OFL)
 
 2026 수업나눔페스타 · 전남중등음악사랑연구회
