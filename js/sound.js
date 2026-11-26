@@ -200,6 +200,27 @@ export async function renderWav(tracks, tempo, units) {
   const buf = await oc.startRendering();
   return wavBlob(buf);
 }
+// MP3 만들기(수노 Upload Audio용) — lamejs(LGPL) 사용
+export async function renderMp3(tracks, tempo, units) {
+  if (!window.lamejs) throw new Error('MP3 도구를 불러오지 못했어요');
+  const sr = 44100;
+  const secs = units * 60 / tempo / 4 + 1.5;
+  const oc = new OfflineAudioContext(2, Math.ceil(secs * sr), sr);
+  const bus = makeBus(oc);
+  schedule(oc, bus, tracks, tempo, .05);
+  const buf = await oc.startRendering();
+  const enc = new window.lamejs.Mp3Encoder(2, sr, 160);
+  const toI16 = f => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); o[i] = v < 0 ? v * 0x8000 : v * 0x7fff; } return o; };
+  const L = toI16(buf.getChannelData(0)), R = toI16(buf.getChannelData(1));
+  const out = [];
+  for (let i = 0; i < L.length; i += 1152) {
+    const b = enc.encodeBuffer(L.subarray(i, i + 1152), R.subarray(i, i + 1152));
+    if (b.length) out.push(new Uint8Array(b));
+    if (i % (1152 * 200) === 0) await new Promise(r => setTimeout(r, 0));
+  }
+  const f = enc.flush(); if (f.length) out.push(new Uint8Array(f));
+  return new Blob(out, { type: 'audio/mpeg' });
+}
 function wavBlob(buf) {
   const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
   const data = new DataView(new ArrayBuffer(44 + len * ch * 2));
