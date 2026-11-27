@@ -331,7 +331,7 @@ main{max-width:calc(var(--wide) + var(--pad)*2);margin:0 auto;padding:30px var(-
 .ed-grp.lens button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ed-grp .pl{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ed-grp .pl.playing{background:var(--red);border-color:var(--red)}
-.editor:not(.has-sel) .ed-grp:not(.ed-plays):not(.ed-view):not(:has([data-e=undo])) button{opacity:.45}
+.editor:not(.has-sel) .ed-grp:not(.ed-plays):not(.ed-view):not(.ed-speed):not(:has([data-e=undo])) button{opacity:.45}
 .ed-score{padding:6px 2px;cursor:default}
 .ed-score .abcjs-note,.ed-score .abcjs-rest{cursor:pointer}
 .ed-score .abcjs-note:hover path,.ed-score .abcjs-rest:hover path{fill:var(--brand-2)}
@@ -345,6 +345,9 @@ main{max-width:calc(var(--wide) + var(--pad)*2);margin:0 auto;padding:30px var(-
 .ed-view button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ed-grp .pl2{background:#fff}
 .editor.following .ed-bar{border-color:#efcfa9}
+.ed-speed{align-items:center}
+.ed-speed .ed-spv{min-width:98px;text-align:center;font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.ed-speed.on .ed-spv{color:var(--orange)}
 
 /* 7 */
 .card.empty p{margin:6px 0 14px;color:var(--ink-2)}
@@ -470,3 +473,19 @@ main{max-width:calc(var(--wide) + var(--pad)*2);margin:0 auto;padding:30px var(-
   .score{overflow:visible}
   .ed-score .ed-on path{fill:#111!important}
 }
+
+/* 수노 맞춤 설정 · 반주 마디 */
+.row.tight{margin-top:0;gap:6px;flex-wrap:nowrap}
+.ctl .row.tight input[type=number]{width:92px;min-width:0}
+.s-tip{display:block;font-style:normal;color:var(--orange);margin-top:4px;font-size:13px}
+.lyline.rest{border-left-color:#cfcac0;background:#fafaf8}
+
+/* 흥얼거림 녹음 */
+.hum{border-top:3px solid var(--red)}
+.hum-now b{font-family:var(--mono);font-size:15px;min-width:96px}
+.hum-lv{display:block;width:120px;height:6px;border-radius:3px;background:#ebe8e2;overflow:hidden}
+.hum-lv i{display:block;height:100%;width:0;background:var(--brand);transition:width .08s}
+.hum-acts{align-items:center}
+.hum-acts audio{height:40px;max-width:100%}
+#humOut .h3{margin-top:16px}
+

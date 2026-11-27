@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=5">
+<link rel="stylesheet" href="app.css?v=6">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -146,6 +146,28 @@
     <p class="now" id="nowNote">지금 누른 음: —</p>
     <div class="kb" id="kb3" aria-label="화면 건반"></div>
   </div>
+  <div class="card hum" id="humCard">
+    <div class="h2row"><h2>🎤 흥얼거림 녹음 <small>가사를 흥얼거리면 수노에 넣을 MP3와 간단한 악보가 함께 만들어져요</small></h2></div>
+    <div class="ctrl">
+      <div class="ctl rec">
+        <button class="btn rec-btn" type="button" id="humRec">🎤 녹음</button>
+        <span class="rec-state" id="humState">예비박 네 번 뒤 흥얼거려요</span>
+      </div>
+      <label class="ctl"><span>부르는 동안 메트로놈 <small>이어폰을 낄 때만</small></span><input type="checkbox" id="humMetro"><b class="sw" aria-hidden="true"></b></label>
+      <div class="ctl hum-now"><span>지금 소리</span><b id="humNow">—</b><i class="hum-lv"><i id="humLv"></i></i></div>
+    </div>
+    <div class="roll-wrap"><canvas id="rollHum" class="roll" height="220"></canvas></div>
+    <div id="humOut" hidden>
+      <div class="row hum-acts">
+        <audio controls id="humAudio" preload="auto"></audio>
+        <button class="btn" type="button" id="humMp3"><b>MP3 받기</b> <small>수노 Create → Upload Audio</small></button>
+        <button class="btn ghost" type="button" id="humUse">이 선율을 내 선율로 쓰기</button>
+      </div>
+      <h3 class="h3">흥얼거림에서 찾은 악보 <small id="humInfo"></small></h3>
+      <div class="score" id="humScore"></div>
+    </div>
+    <p class="hint">녹음은 이 기기 안에서만 쓰고 어디로도 보내지 않아요. 음 높이는 기계가 어림한 것이라 4단계에서 고쳐 써요.</p>
+  </div>
   <div class="note-tip">노랫말을 소리 내어 읽으며 말의 높낮이를 먼저 찾아요. 한 번에 건반 하나씩! 박이 조금 어긋나도 괜찮아요 — 다음 단계에서 맞춥니다.</div>
 </section>
 
@@ -224,10 +246,10 @@
   </div>
   <div class="card" id="tabSuno" hidden>
     <label class="drop" id="sDrop" tabindex="0">
-      <input type="file" id="sMidi" accept=".mid,.midi,audio/midi" multiple>
+      <input type="file" id="sMidi" accept=".mid,.midi,audio/midi,.zip,application/zip" multiple>
       <span class="drop-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="17" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></span>
-      <b>수노 MIDI 파일을 여기에 끌어다 놓으세요</b>
-      <span>스템별 MIDI를 한꺼번에 · 박을 맞춘 악보로 바로 바뀌고, 음표를 눌러 고칠 수 있어요</span>
+      <b>수노 MIDI를 여기에 끌어다 놓으세요</b>
+      <span>수노에서 받은 압축 파일(.zip) 그대로, 또는 스템별 .mid 여러 개를 한꺼번에 · 박을 맞춘 악보로 바로 바뀌고, 음표를 눌러 고칠 수 있어요</span>
       <em>또는 눌러서 파일 고르기</em>
     </label>
     <div class="ctrl slim">
@@ -245,15 +267,15 @@
       <div id="sAdvBody" hidden>
         <div id="sTracks" class="s-tracks"></div>
         <div class="ctrl">
-          <label class="ctl"><span>빠르기(BPM)</span><input type="number" id="sBpm" min="40" max="240" value="120"></label>
-          <label class="ctl"><span>노래 시작 마디 <small>7단계 비교 기준</small></span><input type="number" id="sBar" min="1" max="200" value="1"></label>
-          <label class="ctl"><span>첫 박 미세 조정(초)</span><input type="number" id="sOff" step="0.01" value="0"></label>
+          <div class="ctl s-bpm"><span>빠르기(BPM) <small id="sBpmInfo"></small></span><div class="row tight"><input type="number" id="sBpm" min="20" max="300" step="any" value="120" aria-label="빠르기"><button type="button" class="btn ghost sm" id="sHalf" title="빠르기를 정확히 반으로 — 한 마디가 두 배로 길어져요">÷2</button><button type="button" class="btn ghost sm" id="sDouble" title="빠르기를 정확히 두 배로">×2</button></div></div>
+          <div class="ctl"><span>노래 시작 마디 <small>7단계 비교 기준</small></span><div class="row tight"><input type="number" id="sBar" min="1" max="200" value="1" aria-label="노래 시작 마디"><button type="button" class="btn ghost sm" id="sBarAuto" hidden title="노래 첫 음으로 다시 찾기">자동</button></div></div>
+          <div class="ctl"><span>첫 박 위치 <small>초</small></span><div class="row tight"><button type="button" class="btn ghost sm" id="sOffR" title="모든 음표를 반 박 앞으로">◀ 반 박</button><input type="number" id="sOff" step="0.01" value="0" aria-label="첫 박 미세 조정(초)"><button type="button" class="btn ghost sm" id="sOffL" title="모든 음표를 반 박 뒤로">반 박 ▶</button></div></div>
           <label class="ctl chk"><input type="checkbox" id="sClean" checked><span>잔음 정리 <small>아주 짧은 음 빼기</small></span></label>
         </div>
         <p class="hint">설정을 바꾸면 악보를 다시 만들어요. 악보에서 고친 내용은 처음 상태로 돌아갑니다.</p>
       </div>
     </details>
-    <p class="hint">수노 Studio에서 곡을 열고 <b>⋯ → Get Stems</b>로 파트를 나눈 뒤, 파트마다 <b>Get MIDI</b>로 받은 파일을 넣어요.</p>
+    <p class="hint">수노에서 곡의 <b>⋯ → Edit → Get stems / MIDI</b>를 열고 <b>Download</b>에서 <b>MIDI</b>와 <b>Fixed tempo</b>를 골라 받은 압축 파일을 그대로 넣어요. 쪼개진 트랙은 스템마다 하나로 합치고, 백보컬·효과음은 '빼기'로 둡니다(맞춤 설정에서 바꿀 수 있어요).</p>
   </div>
   <div id="verWrap" hidden>
     <h2 class="h2b">편곡 3가지 <small>끝까지 들어 보고 우리 노래에 어울리는 것을 골라요</small></h2>
@@ -366,6 +388,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=6"></script>
+<script type="module" src="js/app.js?v=7"></script>
 </body>
 </html>
