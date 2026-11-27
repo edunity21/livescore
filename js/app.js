@@ -6,6 +6,7 @@ import * as SC from './score.js?v=7';
 import * as HUM from './hum.js?v=7';
 import qrcode from '../lib/qrcode.mjs';
 import { createEditor, activeEditor } from './editor.js?v=7';
+import * as PLUS from './plus.js?v=7';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -20,7 +21,7 @@ const durLabel = d => DUR[d] || (d / 4) + '박';
 // ── 상태 ──
 function blank() {
   return {
-    v: 1, title: '', group: '', roles: { lyric: '', compose: '', arrange: '', record: '', present: '' }, mode: 'keys',
+    v: 1, title: '', group: '', reflect: { items: {}, good: '', next: '' }, roles: { lyric: '', compose: '', arrange: '', record: '', present: '' }, mode: 'keys',
     tempo: 92, key: 'C', lyrics: [0, 1, 2, 3].map(() => ({ text: '', chorus: false })), take: null, grid: 2, melody: [],
     arr: { settings: { genre: 'pop', mood: 'bright', inst: ['drums', 'bass', 'keys', 'guitar'] }, versions: [], chosen: null, scene: '', why: '', nv: null },
     base: null, decisions: {}, log: [], step: 1, made: false,
@@ -37,7 +38,14 @@ let saveT = null;
 function save() {
   clearTimeout(saveT);
   saveT = setTimeout(() => {
-    try { S.step = U.step; localStorage.setItem(STORE, JSON.stringify(S)); $('#saveBadge').hidden = false; } catch (e) { $('#saveBadge').hidden = true; }
+    S.step = U.step;
+    const data = JSON.stringify(S);
+    for (let k = 0; k < 12; k++) {
+      try { localStorage.setItem(STORE, data); $('#saveBadge').hidden = false; U.saveWarned = false; return; }
+      catch (e) { if (!PLUS.snapTrim()) break; } // 작업 기록이 자리를 차지하면 오래된 것부터 비운다
+    }
+    $('#saveBadge').hidden = true;
+    if (!U.saveWarned) { U.saveWarned = true; toast('브라우저 저장 공간이 가득 차 자동 저장이 안 돼요 — 메뉴 → 프로젝트 파일로 저장해 주세요'); }
   }, 300);
 }
 function pushHist() { U.hist.push(JSON.stringify(S.melody)); if (U.hist.length > 60) U.hist.shift(); }
@@ -87,8 +95,8 @@ function playWith(btn, tracks, opts = {}) {
 }
 function verTracks(v, vocal) {
   const tr = [];
-  if (vocal) tr.push({ inst: 'voice', notes: vocal, vol: .85 });
-  if (v) v.parts.forEach(p => { if (!p.mute) tr.push({ inst: SND.soundOf(p.inst), notes: p.notes, vol: p.inst === 'drums' ? .7 : .45 }); });
+  if (vocal && !S.arr.vmute) tr.push({ inst: 'voice', notes: vocal, vol: .85 * (S.arr.vvol ?? 1) });
+  if (v) v.parts.forEach(p => { if (!p.mute) tr.push({ inst: SND.soundOf(p.inst), notes: p.notes, vol: (p.inst === 'drums' ? .7 : .45) * (p.vol ?? 1) }); });
   return tr;
 }
 let raf = null;
@@ -227,8 +235,10 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   menuPop.hidden = true;
   const a = b.dataset.act;
-  if (a === 'new') ask('지금 곡을 지우고 새 창작곡을 시작할까요? 필요하면 먼저 프로젝트 파일로 저장하세요.', () => { S = blank(); U.hist = []; save(); fillSetup(); go(1); toast('새 창작곡을 시작해요'); }, '새로 시작');
-  if (a === 'demo') { const doit = () => { loadDemo(); toast('예시곡 「우리들의 아침」을 불러왔어요'); go(2); }; (S.melody.length || S.lyrics.some(l => l.text)) ? ask('지금 곡 대신 예시곡을 불러올까요?', doit, '불러오기') : doit(); }
+  if (a === 'snap') { const ok = PLUS.snapSave(S, `${U.step}단계 · 직접 기록`); toast(ok ? '지금 상태를 작업 기록에 남겼어요' : '저장 공간이 부족해 기록하지 못했어요'); }
+  if (a === 'snaps') snapUI();
+  if (a === 'new') ask('지금 곡을 지우고 새 창작곡을 시작할까요? 지금 곡은 작업 기록에 남겨 둡니다.', () => { autoSnap('새 곡 시작 전'); S = blank(); U.hist = []; save(); fillSetup(); go(1); toast('새 창작곡을 시작해요'); }, '새로 시작');
+  if (a === 'demo') { const doit = () => { autoSnap('예시곡 불러오기 전'); loadDemo(); toast('예시곡 「우리들의 아침」을 불러왔어요'); go(2); }; (S.melody.length || S.lyrics.some(l => l.text)) ? ask('지금 곡 대신 예시곡을 불러올까요?', doit, '불러오기') : doit(); }
   if (a === 'save') { download(new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }), fileBase() + '.livescore.json'); }
   if (a === 'open') $('#openFile').click();
   if (a === 'share') share();
@@ -236,9 +246,24 @@ document.addEventListener('click', e => {
 });
 $('#openFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const j = JSON.parse(await f.text()); if (j.v !== 1) throw 0; S = Object.assign(blank(), j); U.hist = []; save(); fillSetup(); go(S.step || 2); toast('프로젝트를 열었어요'); } catch (x) { toast('LIVE SCORE 프로젝트 파일이 아니에요'); }
+  try { const j = JSON.parse(await f.text()); if (j.v !== 1) throw 0; autoSnap('파일 열기 전'); S = Object.assign(blank(), j); U.hist = []; save(); fillSetup(); go(S.step || 2); toast('프로젝트를 열었어요'); } catch (x) { toast('LIVE SCORE 프로젝트 파일이 아니에요'); }
   e.target.value = '';
 };
+function autoSnap(label) { if (S.melody.length || S.lyrics.some(l => l.text)) PLUS.snapSave(S, label); }
+function snapUI() {
+  const d = $('#snapDlg'), list = PLUS.snapList();
+  $('#snapList').innerHTML = list.length ? list.map((x, i) => `<li><div><b>${esc(x.title)}</b><span>${esc(x.label)} · ${x.step}단계</span><small>${new Date(x.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></div><button type="button" class="btn sm" data-snap="${i}">되돌리기</button><button type="button" class="btn ghost sm" data-snapdel="${i}" aria-label="기록 지우기">✕</button></li>`).join('') : '<li class="empty">아직 남긴 기록이 없어요. 메뉴 → 지금 상태 기록해 두기</li>';
+  if (!d.open) d.showModal();
+}
+$('#snapList').addEventListener('click', e => {
+  const r = e.target.closest('[data-snap]'), x = e.target.closest('[data-snapdel]');
+  if (x) { PLUS.snapDelete(+x.dataset.snapdel); snapUI(); return; }
+  if (!r) return;
+  const j = PLUS.snapGet(+r.dataset.snap); if (!j) return;
+  PLUS.snapSave(S, '되돌리기 전');
+  S = Object.assign(blank(), j); U.hist = []; U.edVer = null; save(); fillSetup();
+  $('#snapDlg').close(); go(S.step || 1); toast('기록해 둔 상태로 되돌렸어요 (되돌리기 전 상태도 기록에 남겼어요)');
+});
 function loadDemo() {
   const d = C.demoSong();
   S = blank();
@@ -315,7 +340,7 @@ function buildKb() {
 function kbLight(p, on) { const k = $(`#kb3 .k[data-p="${p}"]`); if (k) k.classList.toggle('on', on); }
 MIDI.onMidi(m => {
   if (m.on) {
-    SND.noteOn(m.p, m.v); kbLight(m.p, true);
+    if (!m.silent) SND.noteOn(m.p, m.v); kbLight(m.p, true);
     $('#nowNote').textContent = `지금 누른 음: ${C.solName(m.p, S.key)}(${C.sciName(m.p, S.key)}) · 세기 ${m.v}`;
     if (!U.soundOk) { U.soundOk = true; if (U.step === 1) midiUI(MIDI.midiState); }
     if (U.rec) recOn(m);
@@ -327,15 +352,16 @@ MIDI.onMidi(m => {
 });
 document.addEventListener('keydown', e => { if (U.step !== 6 && U.step !== 8) return; const ae = activeEditor(); if (ae && ae.host.offsetParent) ae.onKey(e); });
 // 컴퓨터 자판으로도(건반 없을 때 연습): a s d f g h j k = 도~도
-const KEYMAP = { a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70, j: 71, k: 72 };
+const KEYMAP = { KeyA: 60, KeyW: 61, KeyS: 62, KeyE: 63, KeyD: 64, KeyF: 65, KeyT: 66, KeyG: 67, KeyY: 68, KeyH: 69, KeyU: 70, KeyJ: 71, KeyK: 72 }; // e.code: 한글 입력 상태에서도 같은 자리
 const kdown = new Set();
 document.addEventListener('keydown', e => {
-  if (U.step !== 3 || e.repeat || e.target.closest('input,textarea,select')) return;
-  const p = KEYMAP[e.key]; if (!p) return;
+  if (U.step !== 3 || e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.target.closest && e.target.closest('input,textarea,select,dialog'))) return;
+  const p = KEYMAP[e.code]; if (!p) return; e.preventDefault();
   if (S.mode === 'mouse') { mouseAdd(p); return; }
   kdown.add(p); MIDI.injectMidi({ on: true, p, v: 88 });
 });
-document.addEventListener('keyup', e => { const p = KEYMAP[e.key]; if (p && kdown.has(p)) { kdown.delete(p); MIDI.injectMidi({ on: false, p, v: 0 }); } });
+document.addEventListener('keyup', e => { const p = KEYMAP[e.code]; if (p && kdown.has(p)) { kdown.delete(p); MIDI.injectMidi({ on: false, p, v: 0 }); } });
+window.addEventListener('blur', () => { kdown.forEach(p => MIDI.injectMidi({ on: false, p, v: 0 })); kdown.clear(); });
 
 // ── 2 가사 쓰기 ──
 function r2() {
@@ -396,7 +422,13 @@ function sylView() {
 
 // ── 3 선율 연주 ──
 $('#tempo').oninput = e => { S.tempo = +e.target.value; $('#tempoV').textContent = '♩=' + S.tempo; save(); };
-$('#keySel').onchange = e => { S.key = e.target.value; save(); };
+$('#keySel').onchange = e => {
+  const old = S.key, to = e.target.value;
+  if (!S.melody.length || old === to) { S.key = to; save(); return; }
+  const sh = C.keyShift(old, to);
+  S.key = to; save();
+  ask(`선율도 ${C.KEYS[to].name}으로 옮길까요? (${sh > 0 ? '반음 ' + sh + '개 위로' : '반음 ' + -sh + '개 아래로'}) 옮기지 않으면 조표만 바뀌어요.`, () => { transposeAll(sh, old); toast(`곡 전체를 ${C.KEYS[to].name}으로 옮겼어요`); }, '함께 옮기기');
+};
 const MAX_LINES = 50;
 const fromBar = () => Math.max(0, Math.min(U.recFrom || 0, totalBars() - 2));
 function fillFrom() {
@@ -649,6 +681,61 @@ $('#humUse').onclick = () => {
   if (S.melody.some(n => n.s >= o.from * C.BAR && n.s < o.endU)) ask(`${o.from + 1}~${o.endU / C.BAR}마디의 선율이 흥얼거린 선율로 바뀌어요. 바꿀까요?`, doit, '바꾸기'); else doit();
 };
 
+// 곡 전체 조옮김(선율·연주 기록·비교 기준·자동 편곡을 함께)
+function transposeAll(sh, fromKey) {
+  if (!sh) return;
+  pushHist();
+  S.melody = C.shiftPitches(S.melody, sh);
+  if (S.take) S.take.events = S.take.events.map(e => ({ ...e, p: e.p + sh }));
+  if (S.base) S.base = C.shiftPitches(S.base, sh);
+  S.arr.versions.forEach(v => {
+    if (v.source !== 'auto') return;
+    v.vocal = C.shiftPitches(v.vocal || [], sh);
+    v.parts.forEach(p => { if (p.inst !== 'drums') p.notes = C.shiftPitches(p.notes, sh); });
+    if (fromKey && v.chords) v.chords = v.chords.map(c => ({ ...c, name: C.chordName(c, S.key) }));
+  });
+  if (S.arr.nv) { S.arr.nv.parts.forEach(p => { if (p.inst !== 'drums') p.notes = C.shiftPitches(p.notes, sh); }); if (S.arr.nv.chords) S.arr.nv.chords = S.arr.nv.chords.map(c => ({ ...c, name: C.chordName(c, S.key) })); }
+  save(); refresh();
+}
+function rangeUI() {
+  const r = C.range(S.melody), box = $('#rangeBox');
+  $('#rKey').innerHTML = C.KEY_ORDER.map(k => `<option value="${k}" ${k === S.key ? 'selected' : ''}>${C.KEYS[k].name}</option>`).join('');
+  if (!r) { box.innerHTML = '<p class="empty">선율이 생기면 가장 낮은 음과 높은 음을 보여 줘요.</p>'; return; }
+  const LO = 52, HI = 84, pct = p => ((Math.max(LO, Math.min(HI, p)) - LO) / (HI - LO) * 100).toFixed(1);
+  const nm = p => `${C.solName(p, S.key)}${Math.floor(p / 12) - 1}`;
+  const out = r.lo < C.COMFORT.warnLo || r.hi > C.COMFORT.warnHi ? 'bad' : r.lo < C.COMFORT.lo || r.hi > C.COMFORT.hi ? 'mid' : 'ok';
+  const msg = { ok: '모둠원 모두 부르기 편한 음역이에요.', mid: '조금 높거나 낮은 음이 있어요. 목을 풀고 부르거나 조를 옮겨 봐요.', bad: '부르기 힘든 음이 있어요. 아래에서 조를 옮겨 봐요.' }[out];
+  const bk = C.bestKey(S.melody, S.key);
+  const sug = bk && (bk.key !== S.key || bk.shift) && out !== 'ok' ? `<button type="button" class="btn sm" id="rBest" data-k="${bk.key}" data-sh="${bk.shift}">추천: ${C.KEYS[bk.key].name}${bk.shift && bk.key === S.key ? (bk.shift > 0 ? ' 옥타브 위' : ' 옥타브 아래') : ''}로 옮기기</button>` : '';
+  box.innerHTML = `<div class="rng"><div class="rng-z" style="left:${pct(C.COMFORT.lo)}%;width:${(pct(C.COMFORT.hi) - pct(C.COMFORT.lo)).toFixed(1)}%"><span>편한 음역</span></div><div class="rng-m ${out}" style="left:${pct(r.lo)}%;width:${Math.max(1.5, pct(r.hi) - pct(r.lo))}%"></div></div>
+    <p class="rng-t"><b>${nm(r.lo)} ~ ${nm(r.hi)}</b><span>${r.hi - r.lo}반음 · ${C.KEYS[S.key].name}</span><em class="${out}">${msg}</em></p>${sug}`;
+}
+$('#rangeCard').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'rBest') { const k = b.dataset.k, sh = +b.dataset.sh, old = S.key; S.key = k; transposeAll(sh, old); toast(`${C.KEYS[k].name}으로 옮겼어요`); return; }
+  if (b.dataset.oct) { transposeAll(+b.dataset.oct * 12, S.key); toast(+b.dataset.oct > 0 ? '한 옥타브 올렸어요' : '한 옥타브 내렸어요'); }
+});
+$('#rKey').onchange = e => { const to = e.target.value, old = S.key; if (to === old) return; const sh = C.keyShift(old, to); S.key = to; transposeAll(sh, old); toast(`곡 전체를 ${C.KEYS[to].name}으로 옮겼어요`); };
+// 작곡 기법: 마디 반복·동형진행·역행·전위
+function barToolUI() {
+  const bars = totalBars(), opt = (sel) => Array.from({ length: bars }, (_, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${i + 1}마디</option>`).join('');
+  const f = Math.min(U.btFrom ?? 0, bars - 1), t = Math.min(U.btTo ?? 1, bars - 1);
+  $('#btFrom').innerHTML = opt(f); $('#btTo').innerHTML = opt(t);
+  $('#btKind').innerHTML = Object.entries(C.BAR_TOOLS).map(([k, v]) => `<button type="button" data-bt="${k}" class="${(U.btKind || 'copy') === k ? 'on' : ''}">${v}</button>`).join('');
+}
+$('#btKind').addEventListener('click', e => { const b = e.target.closest('[data-bt]'); if (!b) return; U.btKind = b.dataset.bt; $$('#btKind button').forEach(x => x.classList.toggle('on', x === b)); });
+$('#btFrom').onchange = e => { U.btFrom = +e.target.value; };
+$('#btTo').onchange = e => { U.btTo = +e.target.value; };
+$('#btApply').onclick = () => {
+  const f = +$('#btFrom').value, t = +$('#btTo').value, k = U.btKind || 'copy';
+  if (f === t) return toast('가져올 마디와 넣을 마디를 다르게 골라요');
+  const out = C.transformBar(S.melody, f, t, k, S.key);
+  if (!out) return toast(`${f + 1}마디에 음표가 없어요`);
+  pushHist(); S.melody = out; save(); r4();
+  playWith(null, [{ inst: 'voice', notes: S.melody, vol: .8 }], { from: Math.min(f, t) * C.BAR, to: (Math.max(f, t) + 1) * C.BAR });
+  toast(`${f + 1}마디를 ${C.BAR_TOOLS[k]} → ${t + 1}마디에 넣었어요 · 되돌리기로 취소`);
+};
+
 // ── 4 박 맞춤 ──
 $('#gridSel').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; S.grid = +b.dataset.g; save(); r4(); });
 $('#doQuant').onclick = () => {
@@ -665,7 +752,7 @@ function r4() {
   drawRoll4(SND.position());
   const bars = totalBars();
   SC.renderAbc($('#score4'), SC.buildAbc({ tempo: S.tempo, key: S.key, bars, perLine: 4, showTitle: false, voices: [{ id: 'V1', name: '노래', clef: 'treble', notes: S.melody }] }));
-  noteChips();
+  noteChips(); rangeUI(); barToolUI();
 }
 function drawRoll4(play) {
   const cv = $('#roll4'); if (!cv.offsetParent) return;
@@ -788,7 +875,9 @@ document.addEventListener('pointerup', e => {
   const el = document.elementFromPoint(e.clientX, e.clientY);
   const c = el && el.closest('.cell');
   if (dragged && c && +c.dataset.li === d.li) {
-    pushHist(); C.placeSyllable(S.melody, S.lyrics, d.li, d.j, c.dataset.id); save(); r5();
+    pushHist(); const r = C.placeSyllable(S.melody, S.lyrics, d.li, d.j, c.dataset.id);
+    if (r === 'first') { U.hist.pop(); toast('줄의 첫 글자는 첫 음에서 시작해요 — 앞 음에 두 글자를 붙여 뒤 글자를 당겨 보세요'); }
+    save(); r5();
   } else if (dragged && c) toast('같은 줄 안에서만 옮길 수 있어요');
   setTimeout(() => { dragged = false; }, 0);
 });
@@ -848,6 +937,7 @@ function versionsUI() {
   const vs = S.arr.versions;
   $('#verWrap').hidden = !vs.length;
   if (!vs.length) return;
+  $('#verCount').textContent = `편곡 ${vs.length}가지`;
   $('#vers').innerHTML = vs.map(v => `
     <article class="ver ${S.arr.chosen === v.id ? 'on' : ''}" data-id="${v.id}">
       <div class="vh"><b class="vid">${v.id}</b><div><h3>${esc(v.name)}</h3><span class="tag ${v.source}">${v.source === 'suno' ? '수노 AI' : '자동 편곡'}</span></div></div>
@@ -857,7 +947,9 @@ function versionsUI() {
       <div class="row"><button type="button" class="btn ghost sm" data-play="${v.id}">▶ 듣기</button><button type="button" class="btn ghost sm" data-editv="${v.id}">악보 편집</button><button type="button" class="btn sm" data-choose="${v.id}">${S.arr.chosen === v.id ? '✓ 선택됨' : '선택'}</button></div>
     </article>`).join('');
   const v = chosen();
-  $('#partList').innerHTML = v ? [`<li><b>노래</b><span>${v.vocal ? v.vocal.length + '음' : '없음'}</span><em>${v.vocal && v.vocal.length ? '✓ 음표로' : '노래 파트 없음'}</em></li>`, ...v.parts.map(p => `<li><b>${esc(p.name)}</b><span>${p.notes.length}개</span><em>✓ 음표로</em><button type="button" class="mute ${p.mute ? 'on' : ''}" data-mute="${p.id}">${p.mute ? '소리 켜기' : '소리 끄기'}</button></li>`)].join('') : '<li class="empty">편곡을 하나 고르면 파트가 여기에 나뉘어 나와요.</li>';
+  const vol = (id, val) => `<input type="range" class="vol" min="0" max="150" step="5" value="${Math.round((val ?? 1) * 100)}" data-vol="${id}" aria-label="음량">`;
+  $('#partList').innerHTML = v ? [`<li><b>노래</b><span>${v.vocal ? v.vocal.length + '음' : '없음'}</span>${vol('__voice', S.arr.vvol)}<button type="button" class="mute ${S.arr.vmute ? 'on' : ''}" data-mute="__voice">${S.arr.vmute ? '소리 켜기' : '소리 끄기'}</button></li>`, ...v.parts.map(p => `<li><b>${esc(p.name)}</b><span>${p.notes.length}개</span>${vol(p.id, p.vol)}<button type="button" class="mute ${p.mute ? 'on' : ''}" data-mute="${p.id}">${p.mute ? '소리 켜기' : '소리 끄기'}</button></li>`)].join('') : '<li class="empty">편곡을 하나 고르면 파트가 여기에 나뉘어 나와요. 소리 크기도 파트마다 맞출 수 있어요.</li>';
+  chordUI();
 }
 $('#vers').addEventListener('click', e => {
   const p = e.target.closest('[data-play]'), c = e.target.closest('[data-choose]');
@@ -872,8 +964,59 @@ $('#vers').addEventListener('click', e => {
 });
 $('#partList').addEventListener('click', e => {
   const m = e.target.closest('[data-mute]'); if (!m) return;
-  const p = chosen().parts.find(x => x.id === m.dataset.mute); p.mute = !p.mute; save(); versionsUI();
+  if (m.dataset.mute === '__voice') S.arr.vmute = !S.arr.vmute;
+  else { const p = chosen().parts.find(x => x.id === m.dataset.mute); p.mute = !p.mute; syncNv(); }
+  save(); versionsUI();
 });
+$('#partList').addEventListener('input', e => {
+  const r = e.target.closest('[data-vol]'); if (!r) return;
+  const val = +r.value / 100;
+  if (r.dataset.vol === '__voice') S.arr.vvol = val; else { const p = chosen().parts.find(x => x.id === r.dataset.vol); if (p) p.vol = val; syncNv(); }
+  save();
+});
+// 8단계에서 다시 만든 반주(nv)에도 파트 음량·끄기를 그대로
+function syncNv() {
+  const v = chosen(), nv = S.arr.nv; if (!v || !nv || nv.of !== v.id) return;
+  nv.parts.forEach(p => { const o = v.parts.find(x => x.inst === p.inst); if (o) { p.mute = o.mute; p.vol = o.vol; } });
+}
+// ── 코드 직접 바꾸기 ──
+function chordVer() { return S.arr.versions.find(x => x.id === U.edVer) || chosen() || S.arr.versions[0]; }
+function chordUI() {
+  const v = chordVer(), box = $('#chordBox');
+  if (!v || !v.chords || !v.chords.length) { box.innerHTML = '<p class="empty">편곡을 만들면 마디마다 코드가 여기에 나와요.</p>'; return; }
+  const key = v.key || S.key, voc = v.source === 'suno' ? (v.vocal || []) : S.melody;
+  const fit = C.chordFit(voc, v.chords, key);
+  $('#chordWho').textContent = `${v.id} · ${v.name}`;
+  box.innerHTML = v.chords.map((c, i) => {
+    const f = fit[i], lvl = f == null ? '' : f >= .6 ? 'good' : f >= .35 ? 'mid' : 'low';
+    return `<label class="cc ${lvl}"><span>${Math.floor(c.s / C.BAR) + 1}마디${c.d < C.BAR ? (c.s % C.BAR ? ' 뒤' : ' 앞') : ''}</span><select data-ci="${i}">${C.CHORD_POOL.map(d => `<option value="${d.r}${d.q}" ${d.r === c.r && d.q === c.q ? 'selected' : ''}>${C.chordName(d, key)} (${d.name})</option>`).join('')}</select><i title="노래 음 가운데 화음음 비율">${f == null ? '쉼' : Math.round(f * 100) + '%'}</i></label>`;
+  }).join('');
+}
+$('#chordBox').addEventListener('change', e => {
+  const sel = e.target.closest('select[data-ci]'); if (!sel) return;
+  const v = chordVer(); if (!v) return;
+  const d = C.CHORD_POOL.find(x => x.r + x.q === sel.value), i = +sel.dataset.ci, c = v.chords[i];
+  v.chords[i] = C.makeChord(d.r, d.q, c.s, c.d, v.key || S.key); v.userChords = true;
+  if (v.source === 'auto') rebuildParts(v, S.melody);
+  else toast('수노 파트는 그대로 두고 코드 이름만 바꿨어요');
+  if (S.arr.nv && S.arr.nv.of === v.id) S.arr.nv = null;
+  save(); versionsUI(); if (U.edVer === v.id) ed6.render();
+  playChord(v.chords[i], v.key || S.key);
+});
+function rebuildParts(v, melody) {
+  const r = C.arrange(melody, S.lyrics, S.key, v.settings, v.variant, v.userChords ? v.chords : null);
+  r.parts.forEach(p => { const o = v.parts.find(x => x.inst === p.inst); if (o) { p.mute = o.mute; p.vol = o.vol; } });
+  v.parts = r.parts; v.chords = r.chords; v.bars = r.bars;
+  return r;
+}
+function playChord(c, key) {
+  const ctx = SND.audio(), vs = C.voicing(c, C.KEYS[key].tonic, 62);
+  vs.forEach(p => SND.voice(ctx, SND.master, 'keys', p, ctx.currentTime + .02, .7, .6));
+}
+$('#resetChords').onclick = () => {
+  const v = chordVer(); if (!v || v.source !== 'auto') return toast('자동 편곡에서만 처음 코드로 돌릴 수 있어요');
+  v.userChords = false; rebuildParts(v, S.melody); save(); versionsUI(); ed6.render(); toast('처음 만든 코드로 돌렸어요');
+};
 // 수노 MIDI — 끌어다 놓으면 박을 맞춘(퀀타이즈) 악보로 바로
 function guessPart(name, tr) {
   const stem = MIDI.stemName(name) || '';
@@ -1136,7 +1279,7 @@ $('#saveDec').onclick = () => {
   pushHist();
   const a = bar * C.BAR, b = a + C.BAR;
   const src = U.pick === 'ai' ? alignedVocal(v) : S.base;
-  S.melody = S.melody.filter(n => !(n.s >= a && n.s < b));
+  S.melody = S.melody.filter(n => !(n.s >= a && n.s < b)).map(n => (n.s < a && n.s + n.d > a ? { ...n, d: a - n.s } : n)); // 앞 마디에서 넘어온 음은 마디 앞에서 끊는다
   src.filter(n => n.p != null && n.s >= a && n.s < b).forEach(n => S.melody.push({ id: C.uid(), p: n.p, s: n.s, d: Math.min(n.d, (S.melody.find(m => m.s >= b) || { s: Infinity }).s - n.s), lx: U.pick === 'mine' ? (n.lx || 'n') : 'n' }));
   S.melody.sort((x, y) => x.s - y.s);
   S.decisions[bar] = { choice: U.pick, why, who, at: Date.now() };
@@ -1165,8 +1308,9 @@ function finalParts() {
   const nv = S.arr.nv && S.arr.nv.of === S.arr.chosen ? S.arr.nv : null;
   if (nv) return { parts: nv.parts, chords: nv.chords, locked: false };
   if (!v) return { parts: [], chords: null, locked: false };
-  if (vOff(v)) return { parts: alignedParts(v), chords: alignedChords(v), locked: true };
-  return { parts: v.parts, chords: v.chords, locked: false };
+  const norm = ch => (ch && v.key && v.key !== S.key ? ch.map(c => ({ ...c, r: C.pc(C.KEYS[v.key].tonic + c.r - C.KEYS[S.key].tonic) })) : ch); // 수노 곡 조성이 달라도 코드 뿌리는 그대로
+  if (vOff(v)) return { parts: alignedParts(v), chords: norm(alignedChords(v)), locked: true };
+  return { parts: v.parts, chords: norm(v.chords), locked: false };
 }
 function fullVoices(melody) {
   const { parts, chords, locked } = finalParts();
@@ -1187,7 +1331,7 @@ function r8() {
   $('#scoreInfo').textContent = info8();
   const v = chosen();
   $$('.vlab').forEach(x => { x.textContent = vlab(v) === 'AI' ? 'AI' : '편곡'; });
-  $('#playFirst').disabled = !v; stat('#stat8');
+  $('#playFirst').disabled = !v; stat('#stat8'); reflectUI();
 }
 function exportParts() {
   const { voices, parts, chords } = fullVoices(S.melody);
@@ -1215,6 +1359,55 @@ async function mp3(btn, tracks, name) {
 }
 $('#exWav').onclick = e => mp3(e.currentTarget, [{ inst: 'voice', notes: S.melody, vol: .9 }], '_선율.mp3');
 $('#exMp3All').onclick = e => mp3(e.currentTarget, verTracks({ parts: finalParts().parts }, S.melody), '_노래와반주.mp3');
+$('#exMr').onclick = e => mp3(e.currentTarget, verTracks({ parts: finalParts().parts }, null), '_반주MR.mp3');
+// 화면 악보(abcjs) → 따로 떼어 쓸 수 있는 SVG 글
+function scoreSvg() {
+  const svg = $('#ed8 .ed-score svg'); if (!svg) return '';
+  const c = svg.cloneNode(true);
+  c.removeAttribute('style'); c.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const vb = (c.getAttribute('viewBox') || '').split(/\s+/).map(Number);
+  if (vb.length === 4) { c.setAttribute('width', Math.round(vb[2])); c.setAttribute('height', Math.round(vb[3])); }
+  c.querySelectorAll('.ed-on,.ed-play').forEach(x => x.classList.remove('ed-on', 'ed-play'));
+  c.querySelectorAll('.ed-cursor').forEach(x => x.remove());
+  return c.outerHTML;
+}
+$('#exSvg').onclick = () => {
+  const svg = scoreSvg(); if (!svg) return toast('아직 악보가 없어요');
+  download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), fileBase() + '_악보.svg');
+  toast('악보 그림(SVG)을 받았어요');
+};
+// ── 노래방·발표 모드 ──
+$('#karaBtn').onclick = () => {
+  if (!S.melody.length) return toast('아직 선율이 없어요');
+  stopPlay();
+  PLUS.openKaraoke({
+    title: S.title || '우리 노래', sub: [S.group, C.KEYS[S.key].name, '♩=' + S.tempo].filter(Boolean).join(' · '), tempo: S.tempo, bars: totalBars(),
+    lines: PLUS.karaLines(C, S.melody, S.lyrics), SND,
+    tracks: withVoice => verTracks({ parts: finalParts().parts }, withVoice ? S.melody : null).filter(t => withVoice || t.inst !== 'voice'),
+  });
+};
+// ── 자기평가 · 과정 보고서 ──
+function reflectUI() {
+  const r = S.reflect || (S.reflect = { items: {}, good: '', next: '' });
+  $('#rubric').innerHTML = PLUS.RUBRIC.map((t, i) => `<li><p>${esc(t)}</p><div class="seg2 sm" data-ri="${i}">${PLUS.LEVELS.map((l, k) => `<button type="button" data-lv="${k}" class="${r.items[i] === k ? 'on' : ''}">${l}</button>`).join('')}</div></li>`).join('');
+  $('#refGood').value = r.good || ''; $('#refNext').value = r.next || '';
+}
+$('#rubric').addEventListener('click', e => {
+  const b = e.target.closest('[data-lv]'); if (!b) return;
+  const i = +b.closest('[data-ri]').dataset.ri; S.reflect.items[i] = +b.dataset.lv; save(); reflectUI();
+});
+$('#refGood').oninput = e => { S.reflect.good = e.target.value; save(); };
+$('#refNext').oninput = e => { S.reflect.next = e.target.value; save(); };
+$('#reportBtn').onclick = () => {
+  const v = chosen(), svgHtml = scoreSvg();
+  const ok = PLUS.openReport({
+    title: S.title || '우리 노래', group: S.group, roles: S.roles, roleNames: ROLE, keyName: C.KEYS[S.key].name, tempo: S.tempo, bars: totalBars(),
+    date: new Date().toLocaleDateString('ko-KR'), lyrics: S.lyrics, scene: S.arr.scene, why: S.arr.why, verName: v ? `${v.id} · ${v.name}` : '', prog: v ? progression(v) : '',
+    syl: S.lyrics.reduce((a, l) => a + C.syllables(l.text).length, 0), notes: S.melody.length, counts: counts(), vlab: vlab(v),
+    log: S.log.map(l => ({ ...l, who: l.who === 'all' ? '모둠 전체' : roleName(l.who) })), reflect: S.reflect || { items: {} }, svg: svgHtml,
+  });
+  if (!ok) toast('새 창이 막혔어요 — 주소창 오른쪽에서 팝업을 허용해 주세요');
+};
 $('#playFirst').onclick = e => { const v = chosen(); if (v) playWith(e.currentTarget, verTracks({ parts: alignedParts(v) }, alignedVocal(v))); };
 $('#playFinal').onclick = e => {
   playWith(e.currentTarget, verTracks({ parts: finalParts().parts }, S.melody));
@@ -1224,8 +1417,8 @@ $('#newVer').onclick = () => {
   const v = chosen(), box = $('#newVerBox'); box.hidden = false;
   if (!v) { box.innerHTML = '<p>6단계에서 편곡을 먼저 골라 주세요.</p>'; return; }
   if (v.source === 'auto') {
-    const r = C.arrange(S.melody, S.lyrics, S.key, v.settings, v.variant);
-    S.arr.nv = { of: v.id, parts: r.parts, chords: r.chords }; save(); r8();
+    const r = C.arrange(S.melody, S.lyrics, S.key, v.settings, v.variant, v.userChords ? v.chords : null);
+    S.arr.nv = { of: v.id, parts: r.parts, chords: r.chords }; syncNv(); save(); r8();
     box.innerHTML = `<p><b>고친 선율에 맞춰 반주를 다시 만들었어요.</b> 위의 <b>▶ 고친 뒤 새 버전</b>과 <b>▶ 처음 버전</b>을 차례로 들어 보세요.</p>`;
   } else {
     box.innerHTML = `<ol class="howto"><li><b>노래 선율 MP3</b>로 고친 선율을 받아요.</li><li>수노 <b>Create → Upload Audio</b>에 올리고 <b>Cover</b>로 같은 장르·분위기의 새 버전을 만들어요.</li><li>새로 받은 음원을 여기에 올려 처음 버전과 비교해 들어요.</li></ol><label class="ctl file"><span>새 버전 음원</span><input type="file" accept="audio/*" id="nvAudio"></label><div id="nvPlayer"></div>`;
@@ -1237,7 +1430,7 @@ $('#newVer').onclick = () => {
 async function packShare() {
   const v = chosen();
   const o = { t: S.title, g: S.group, k: S.key, b: S.tempo, l: S.lyrics.map(l => [l.text, l.chorus ? 1 : 0]), m: S.melody.map(n => [n.p, n.s, n.d, n.lx === 'n' ? 0 : n.lx]) };
-  if (v && v.source === 'auto') o.a = { s: v.settings, v: v.variant };
+  if (v && v.source === 'auto') { o.a = { s: v.settings, v: v.variant }; if (v.userChords) o.a.c = v.chords.map(c => [c.s, c.d, c.r, c.q]); }
   else if (v) o.c = v.chords.map(c => [c.s, c.d, c.r, c.q]);
   const bytes = new TextEncoder().encode(JSON.stringify(o));
   let out = bytes, z = '0';
@@ -1275,7 +1468,7 @@ async function viewer(hash) {
   const melody = o.m.map(([p, s, d, lx]) => ({ id: C.uid(), p, s, d, lx: lx || 'n' }));
   const bars = Math.max(2, lyrics.length * 2, Math.ceil(Math.max(0, ...melody.map(n => n.s + n.d)) / C.BAR));
   let parts = [], chords = null;
-  if (o.a) { const r = C.arrange(melody, lyrics, o.k, o.a.s, o.a.v); parts = r.parts; chords = r.chords; }
+  if (o.a) { const fx = o.a.c ? o.a.c.map(([s, d, r, q]) => ({ s, d, r, q })) : null; const r = C.arrange(melody, lyrics, o.k, o.a.s, o.a.v, fx); parts = r.parts; chords = r.chords; }
   else if (o.c) chords = o.c.map(([s, d, r, q]) => ({ s, d, r, q, name: C.chordName({ r, q }, o.k) }));
   document.body.classList.add('viewer');
   const sec = document.createElement('section'); sec.className = 'step view'; sec.id = 'viewer';
@@ -1291,8 +1484,8 @@ async function viewer(hash) {
   const tracks = [{ inst: 'voice', notes: melody, vol: .85 }, ...parts.map(p => ({ inst: SND.soundOf(p.inst), notes: p.notes, vol: p.inst === 'drums' ? .7 : .45 }))];
   $('#vPlay').onclick = e => { S.tempo = o.b; playWith(e.currentTarget, tracks); };
   $('#vSing').onclick = e => { S.tempo = o.b; playWith(e.currentTarget, [tracks[0]]); };
-  $('#vTake').onclick = () => ask('받은 악보를 이 기기의 작업 곡으로 가져올까요? 이 기기에 있던 곡은 바뀝니다.', () => {
-    S = blank(); Object.assign(S, { title: o.t, group: o.g, key: o.k, tempo: o.b, lyrics, melody, made: true });
+  $('#vTake').onclick = () => ask('받은 악보를 이 기기의 작업 곡으로 가져올까요? 이 기기에 있던 곡은 작업 기록에 남겨 둡니다.', () => {
+    autoSnap('받은 악보 가져오기 전'); S = blank(); Object.assign(S, { title: o.t, group: o.g, key: o.k, tempo: o.b, lyrics, melody, made: true });
     if (o.a) S.arr.settings = o.a.s;
     save(); history.replaceState(null, '', location.pathname); location.reload();
   }, '가져오기');

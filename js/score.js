@@ -3,7 +3,7 @@ import { BAR, KEYS, pc, toPieces, lyricFlow } from './core.js?v=7';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
-const KEYSIG = { C: {}, G: { F: 1 }, D: { F: 1, C: 1 }, F: { B: -1 } };
+const KEYSIG = { C: {}, G: { F: 1 }, D: { F: 1, C: 1 }, A: { F: 1, C: 1, G: 1 }, E: { F: 1, C: 1, G: 1, D: 1 }, F: { B: -1 }, Bb: { B: -1, E: -1 }, Eb: { B: -1, E: -1, A: -1 } };
 export function spell(p, key) {
   const [L, alt] = ((KEYS[key] || KEYS.C).flat ? FLAT_N : SHARP_N)[pc(p)];
   return { L, alt, oct: Math.floor((p - alt) / 12) - 1 };

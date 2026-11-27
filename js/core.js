@@ -8,7 +8,12 @@ export const KEYS = {
   G: { name: '사장조', tonic: 7, fifths: 1, flat: false },
   D: { name: '라장조', tonic: 2, fifths: 2, flat: false },
   F: { name: '바장조', tonic: 5, fifths: -1, flat: true },
+  A: { name: '가장조', tonic: 9, fifths: 3, flat: false },
+  E: { name: '마장조', tonic: 4, fifths: 4, flat: false },
+  Bb: { name: '내림나장조', tonic: 10, fifths: -2, flat: true },
+  Eb: { name: '내림마장조', tonic: 3, fifths: -3, flat: true },
 };
+export const KEY_ORDER = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb'];
 export const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 
 export const pc = p => ((p % 12) + 12) % 12;
@@ -160,10 +165,8 @@ export function placeSyllable(melody, lines, li, j, targetId) {
     if (pos === ti) return;
     if (pos < ti) {
       const n = notes[pos], m = map.get(n.id);
-      if (n.lx === 'd') { if (m.idx === j) { n.lx = 'n'; continue; } n.lx = 'n'; continue; }
-      if (pos === 0) { // 첫 음은 늘임이 될 수 없다 → 앞 음절을 두 글자로 묶지 않고 뒤로 민다
-        n.lx = 'e'; continue;
-      }
+      if (n.lx === 'd') { n.lx = 'n'; continue; }
+      if (pos === 0) return 'first'; // 줄의 첫 음은 늘임이 될 수 없다 — 첫 글자는 첫 음에서 시작
       n.lx = 'e'; continue;
     }
     // pos > ti : 앞으로 당긴다
@@ -260,7 +263,7 @@ export function voicing(ch, tonic, center = 64, size = 3) {
 }
 
 // ── 자동 편곡 ──
-export const GENRES = { pop: '밴드 팝', ballad: '발라드', rock: '록', acoustic: '어쿠스틱' };
+export const GENRES = { pop: '밴드 팝', ballad: '발라드', rock: '록', acoustic: '어쿠스틱', dance: '댄스', hiphop: '힙합' };
 export const MOODS = { bright: '밝게', calm: '잔잔하게', power: '힘차게' };
 export const INSTS = {
   drums: { name: '드럼', clef: 'perc', gm: 0, drum: true },
@@ -283,6 +286,18 @@ function drumBar(genre, mood, bar, last, chorus, first) {
   const busy = mood === 'power' || genre === 'rock';
   const soft = mood === 'calm' || genre === 'ballad' || genre === 'acoustic';
   if (first || (chorus && bar % 2 === 0 && !soft)) add('crash', 0);
+  if (genre === 'dance') { // 네 박 모두 큰북(포 온 더 플로어), 엇박 하이햇
+    [0, 4, 8, 12].forEach(u => add('kick', u)); add('snare', 4); add('snare', 12);
+    [2, 6, 10, 14].forEach(u => add('hat', u));
+    if (chorus || mood === 'power') [0, 4, 8, 12].forEach(u => { if (!(u === 0 && hits.some(h => h.k === 'crash'))) add('hat', u); });
+    return hits;
+  }
+  if (genre === 'hiphop') { // 붐뱁: 큰북 엇갈림, 작은북 2·4박, 8분 하이햇
+    for (let u = 0; u < 16; u += 2) if (!(u === 0 && hits.some(h => h.k === 'crash'))) add('hat', u);
+    [0, 7, 10].forEach(u => add('kick', u)); add('snare', 4); add('snare', 12);
+    if (mood === 'power') add('kick', 14);
+    return hits;
+  }
   if (soft) {
     for (let u = 0; u < 16; u += 4) if (!(first && u === 0)) add('hat', u);
     add('kick', 0); add('kick', 10); add('snare', 12);
@@ -298,13 +313,16 @@ function drumBar(genre, mood, bar, last, chorus, first) {
   return hits;
 }
 
-export function arrange(melody, lines, key, settings, variant = 0) {
+export function arrange(melody, lines, key, settings, variant = 0, fixed = null) {
   const k = KEYS[key] || KEYS.C;
   const bars = Math.max(lines.length * 2, Math.ceil(Math.max(0, ...melody.map(n => n.s + n.d)) / BAR), 2);
   const { genre = 'pop', mood = 'bright', inst = ['drums', 'bass', 'keys', 'guitar'] } = settings;
   const pools = [['I', 'IV', 'V', 'vi'], ['I', 'ii', 'iii', 'IV', 'V', 'vi'], ['I', 'ii', 'IV', 'V', 'vi']];
   const biases = [{ I: .3, IV: .3, V: .3 }, { vi: 1.6, ii: 1.3, iii: 1.1, I: -.4 }, { IV: .4, vi: .5 }];
   const chords = harmonize(melody, bars, key, { pool: pools[variant % 3], perBar: variant === 2 ? 2 : 1, seed: variant + 1, flow: variant === 1 ? .6 : 1.1, bias: biases[variant % 3] });
+  if (fixed && fixed.length) { // 학생이 고른 코드로 바꾸기(같은 자리·같은 길이)
+    chords.forEach((c, i) => { const f = fixed.find(x => x.s === c.s && x.d === c.d); if (f) chords[i] = makeChord(f.r, f.q, c.s, c.d, key); });
+  }
   const chorusBar = b => lines[Math.floor(b / 2)] && lines[Math.floor(b / 2)].chorus;
   const chordAt = u => chords.find(c => u >= c.s && u < c.s + c.d) || chords[chords.length - 1];
   const parts = [];
@@ -330,6 +348,8 @@ export function arrange(melody, lines, key, settings, variant = 0) {
         const R = 36 + pc(root - 0); const r = R < 40 ? R + 12 : R; const low = r - 12 >= 28 ? r - 12 : r;
         const fifth = low + 7;
         if (lastBar) { notes.push({ p: low, s: c.s, d: c.d }); continue; }
+        if (genre === 'dance') { for (let u = 2; u < c.d; u += 4) notes.push({ p: u % 8 === 6 ? low + 12 : low, s: c.s + u, d: 2 }); continue; }
+        if (genre === 'hiphop') { [[0, 6, low], [7, 3, low], [10, 4, fifth]].forEach(([u, d, p]) => { if (u < c.d) notes.push({ p, s: c.s + u, d: Math.min(d, c.d - u) }); }); continue; }
         if (genre === 'rock' || mood === 'power') for (let u = 0; u < c.d; u += 2) notes.push({ p: low, s: c.s + u, d: 2 });
         else if (genre === 'ballad' || genre === 'acoustic' || mood === 'calm') {
           if (c.d >= 16) { notes.push({ p: low, s: c.s, d: 8 }); notes.push({ p: fifth, s: c.s + 8, d: 8 }); } else notes.push({ p: low, s: c.s, d: c.d });
@@ -340,6 +360,8 @@ export function arrange(melody, lines, key, settings, variant = 0) {
       } else if (id === 'keys') {
         const v = voicing(ch, k.tonic, 62);
         if (lastBar) { notes.push({ p: v[0], s: c.s, d: c.d, chord: v }); continue; }
+        if (genre === 'dance') { for (let u = 2; u < c.d; u += 4) notes.push({ p: v[0], s: c.s + u, d: 2, chord: v }); continue; }
+        if (genre === 'hiphop') { notes.push({ p: v[0], s: c.s, d: Math.min(c.d, 12), chord: v }); continue; }
         if (genre === 'ballad' || mood === 'calm') {
           const arp = [v[0] - 12, v[0], v[1], v[2], v[0] + 12, v[2], v[1], v[0]];
           for (let u = 0, i = 0; u < c.d; u += 2, i++) notes.push({ p: arp[i % arp.length], s: c.s + u, d: 2 });
@@ -351,7 +373,10 @@ export function arrange(melody, lines, key, settings, variant = 0) {
       } else if (id === 'guitar') {
         const v = voicing(ch, k.tonic, 58);
         if (lastBar) { notes.push({ p: v[0], s: c.s, d: c.d, chord: v }); continue; }
-        if (genre === 'rock' || mood === 'power') {
+        if (genre === 'hiphop' || genre === 'dance') {
+          const pat = c.d >= 16 ? [[6, 2], [14, 2]] : [[6, 2]];
+          pat.forEach(([u, d]) => { if (u < c.d) notes.push({ p: v[0], s: c.s + u, d, chord: v }); });
+        } else if (genre === 'rock' || mood === 'power') {
           const pw = [v[0], v[0] + 7];
           for (let u = 0; u < c.d; u += 2) notes.push({ p: pw[0], s: c.s + u, d: 2, chord: pw });
         } else if (genre === 'acoustic' || genre === 'ballad') {
@@ -428,6 +453,86 @@ export function styleVocal(melody, settings, variant, key = 'C') {
     }
   });
   return out;
+}
+
+// ── 코드 직접 고르기 ──
+export const CHORD_POOL = DEG;
+export function makeChord(r, q, s, d, key) {
+  const dg = DEG.find(x => x.r === r && x.q === q);
+  return { s, d, r, q, deg: dg ? dg.name : '', name: chordName({ r, q }, key) };
+}
+// 코드마다 노래 음이 화음음과 얼마나 맞는지(0~1, 길이 가중)
+export function chordFit(melody, chords, key) {
+  const k = KEYS[key] || KEYS.C;
+  return chords.map(c => {
+    const t = chordTones(c, k.tonic); let all = 0, ok = 0;
+    for (const n of melody) {
+      if (n.p == null) continue;
+      const ov = Math.min(c.s + c.d, n.s + n.d) - Math.max(c.s, n.s); if (ov <= 0) continue;
+      all += ov; if (t.includes(pc(n.p))) ok += ov;
+    }
+    return all ? ok / all : null;
+  });
+}
+
+// ── 음역·조옮김 ──
+export const COMFORT = { lo: 60, hi: 74, warnLo: 57, warnHi: 77 }; // 도4~레5 편함, 라3~미5까지 주의
+export function range(notes) {
+  const ps = notes.filter(n => n.p != null).map(n => n.p);
+  return ps.length ? { lo: Math.min(...ps), hi: Math.max(...ps) } : null;
+}
+export function keyShift(from, to) { // 가장 가까운 방향의 반음 수(-6~+5)
+  const d = pc((KEYS[to] || KEYS.C).tonic - (KEYS[from] || KEYS.C).tonic);
+  return d > 5 ? d - 12 : d;
+}
+// 지금 선율을 다른 조로 옮겼을 때 편한 음역에 가장 잘 들어오는 조 찾기
+export function bestKey(notes, from) {
+  const r = range(notes); if (!r) return null;
+  let best = null;
+  for (const k of KEY_ORDER) {
+    for (const oct of [-12, 0, 12]) {
+      const sh = keyShift(from, k) + oct, lo = r.lo + sh, hi = r.hi + sh;
+      const out = Math.max(0, COMFORT.lo - lo) + Math.max(0, hi - COMFORT.hi);
+      const sc = out * 10 + Math.abs(sh) * .3 + Math.abs((lo + hi) / 2 - (COMFORT.lo + COMFORT.hi) / 2) * .2;
+      if (!best || sc < best.sc) best = { key: k, shift: sh, sc, lo, hi, out };
+    }
+  }
+  return best;
+}
+export function shiftPitches(notes, semis) {
+  return notes.map(n => (n.p == null ? n : { ...n, p: n.p + semis, chord: n.chord ? n.chord.map(x => x + semis) : n.chord }));
+}
+
+// ── 작곡 기법: 마디 반복·동형진행·역행·전위 ──
+export const BAR_TOOLS = { copy: '그대로 반복', up: '2도 위로(동형진행)', down: '2도 아래로(동형진행)', retro: '거꾸로(역행)', inv: '뒤집기(전위)' };
+function degOf(p, tonic) { // 음계 안 위치(옥타브×7 + 음계 순서), 음계 밖 음은 바로 아래 음계음
+  let q = p, guard = 0; while (!MAJOR.includes(pc(q - tonic)) && guard++ < 2) q--;
+  const oct = Math.floor((q - tonic) / 12);
+  return { deg: oct * 7 + MAJOR.indexOf(pc(q - tonic)), alt: p - q };
+}
+function pitchOf(deg, tonic, alt = 0) {
+  const oct = Math.floor(deg / 7), i = ((deg % 7) + 7) % 7;
+  return tonic + oct * 12 + MAJOR[i] + alt;
+}
+export function transformBar(melody, from, to, kind, key) {
+  const tonic = (KEYS[key] || KEYS.C).tonic;
+  const a = from * BAR, b = a + BAR, ta = to * BAR, tb = ta + BAR;
+  let src = melody.filter(n => n.p != null && n.s >= a && n.s < b).map(n => ({ p: n.p, s: n.s - a, d: Math.min(n.d, b - n.s) }));
+  if (!src.length) return null;
+  if (kind === 'up' || kind === 'down') {
+    const st = kind === 'up' ? 1 : -1;
+    src = src.map(n => { const g = degOf(n.p, tonic); return { ...n, p: pitchOf(g.deg + st, tonic, g.alt) }; });
+  } else if (kind === 'retro') {
+    src = src.map(n => ({ ...n, s: BAR - (n.s + n.d) })).sort((x, y) => x.s - y.s);
+  } else if (kind === 'inv') {
+    const g0 = degOf(src[0].p, tonic).deg;
+    src = src.map(n => { const g = degOf(n.p, tonic); return { ...n, p: pitchOf(2 * g0 - g.deg, tonic, 0) }; });
+  }
+  const kept = melody.filter(n => !(n.s >= ta && n.s < tb)).map(n => (n.s < ta && n.s + n.d > ta ? { ...n, d: ta - n.s } : n));
+  const next = kept.filter(n => n.s >= tb).sort((x, y) => x.s - y.s)[0];
+  const lim = next ? next.s : Infinity;
+  const fresh = src.map(n => ({ id: uid(), p: Math.max(36, Math.min(96, n.p)), s: ta + n.s, d: Math.min(n.d, lim - (ta + n.s)), lx: 'n' })).filter(n => n.d > 0);
+  return [...kept, ...fresh].sort((x, y) => x.s - y.s);
 }
 
 // ── 비교 ──

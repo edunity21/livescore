@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=6">
+<link rel="stylesheet" href="app.css?v=7">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -35,6 +35,11 @@
           <button type="button" data-act="demo">예시곡 「우리들의 아침」 불러오기</button>
           <button type="button" data-act="save">프로젝트 파일로 저장 (.json)</button>
           <button type="button" data-act="open">프로젝트 파일 열기</button>
+          <hr>
+          <button type="button" data-act="snap">지금 상태 기록해 두기</button>
+          <button type="button" data-act="snaps">작업 기록 보기 · 되돌리기</button>
+          <hr>
+          <a href="teacher.html" target="_blank" rel="noopener">교사용 모아보기 ↗</a>
           <a href="https://edunity21.github.io/livescore-manual/" target="_blank" rel="noopener">사용 매뉴얼 ↗</a>
         </div>
       </div>
@@ -126,7 +131,7 @@
     <div class="ctrl">
       <div class="ctl"><span>박자</span><b class="chip on">4/4</b></div>
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
-      <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조</option><option value="G">사장조</option><option value="F">바장조</option><option value="D">라장조</option></select></label>
+      <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조</option><option value="G">사장조</option><option value="D">라장조</option><option value="A">가장조</option><option value="E">마장조</option><option value="F">바장조</option><option value="Bb">내림나장조</option><option value="Eb">내림마장조</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
       <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
       <div class="ctl rec">
@@ -198,6 +203,25 @@
         <button type="button" data-ed="longer">길게</button><button type="button" data-ed="shorter">짧게</button>
         <button type="button" data-ed="del">지우기</button><button type="button" data-ed="undo">되돌리기</button>
       </div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card" id="rangeCard">
+      <h2>음역 점검 · 조옮김 <small>모둠원 모두 부르기 편한가요?</small></h2>
+      <div id="rangeBox" class="range-box"></div>
+      <div class="row">
+        <label class="ctl inline"><span>곡 전체를</span><select id="rKey" aria-label="옮길 조"></select></label>
+        <button type="button" class="btn ghost sm" data-oct="1">한 옥타브 ▲</button>
+        <button type="button" class="btn ghost sm" data-oct="-1">한 옥타브 ▼</button>
+      </div>
+      <p class="hint">조를 옮기면 선율·연주 기록·자동 편곡이 함께 옮겨져요. 남학생 변성기를 생각해 너무 높은 음은 피해요.</p>
+    </div>
+    <div class="card" id="barTools">
+      <h2>작곡 기법 도구 <small>한 마디를 골라 다른 마디에 변형해 넣기</small></h2>
+      <div class="bt-row"><label class="ctl inline"><span>가져올 마디</span><select id="btFrom"></select></label><span class="bt-arrow">→</span><label class="ctl inline"><span>넣을 마디</span><select id="btTo"></select></label></div>
+      <div class="seg2 multi bt-kind" id="btKind"></div>
+      <div class="row"><button class="btn" type="button" id="btApply">적용하고 들어 보기</button><button class="btn ghost" type="button" data-ed="undo" onclick="document.querySelector('#noteTools [data-ed=undo]').click()">되돌리기</button></div>
+      <ul class="tips"><li><b>반복</b>은 익숙함을, <b>동형진행</b>은 같은 모양을 한 계단 옮겨 흐름을 만들어요.</li><li><b>역행</b>은 시간을 거꾸로, <b>전위</b>는 위아래를 뒤집어요 — 동기를 새롭게 발전시켜요.</li></ul>
     </div>
   </div>
 </section>
@@ -278,7 +302,7 @@
     <p class="hint">수노에서 곡의 <b>⋯ → Edit → Get stems / MIDI</b>를 열고 <b>Download</b>에서 <b>MIDI</b>와 <b>Fixed tempo</b>를 골라 받은 압축 파일을 그대로 넣어요. 쪼개진 트랙은 스템마다 하나로 합치고, 백보컬·효과음은 '빼기'로 둡니다(맞춤 설정에서 바꿀 수 있어요).</p>
   </div>
   <div id="verWrap" hidden>
-    <h2 class="h2b">편곡 3가지 <small>끝까지 들어 보고 우리 노래에 어울리는 것을 골라요</small></h2>
+    <h2 class="h2b"><span id="verCount">편곡 3가지</span> <small>끝까지 들어 보고 우리 노래에 어울리는 것을 골라요</small></h2>
     <div class="vers" id="vers"></div>
     <div class="grid2">
       <div class="card">
@@ -289,6 +313,11 @@
         <h2>고른 이유 <small>기록 담당</small></h2>
         <label class="fld"><span>세 버전 중 이것을 고른 이유</span><textarea id="pickWhy" rows="3" maxlength="200" placeholder="예: B는 드럼과 기타가 밝아서 아침 등굣길 장면에 어울린다."></textarea></label>
       </div>
+    </div>
+    <div class="card chord-card">
+      <div class="h2row"><h2>코드 바꾸기 <small id="chordWho"></small></h2><button type="button" class="btn ghost sm" id="resetChords">처음 코드로</button></div>
+      <p class="sub">마디마다 코드를 골라 보세요. 반주가 그 코드로 다시 만들어지고, 코드 소리를 바로 들려줘요. 숫자는 그 마디 노래 음 가운데 <b>화음음</b>의 비율 — 높을수록 잘 어울려요.</p>
+      <div class="chord-box" id="chordBox"></div>
     </div>
   </div>
   <div class="card ed-card" id="edCard" hidden>
@@ -343,6 +372,8 @@
         <button type="button" id="exMid"><b>MIDI 파일 받기</b><span>다른 앱에서 연주·녹음</span></button>
         <button type="button" id="exWav"><b>노래 선율 MP3</b><span>수노 Upload Audio에 넣기</span></button>
         <button type="button" id="exMp3All"><b>노래 + 반주 MP3</b><span>함께 듣기 · 발표용</span></button>
+        <button type="button" id="exMr"><b>반주만 MP3 (MR)</b><span>발표 때 직접 부르기</span></button>
+        <button type="button" id="exSvg"><b>악보 그림(SVG)</b><span>패들렛·학급 게시판·발표 자료</span></button>
       </div>
     </div>
     <div class="card">
@@ -354,6 +385,23 @@
       <p class="stat" id="stat8"></p>
       <button class="btn" type="button" id="newVer">✨ 새 버전 노래 만들기</button>
       <div class="newver" id="newVerBox" hidden></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card stage-card">
+      <h2>발표하기 <small>노래방 · 전체 화면</small></h2>
+      <p>가사가 크게 뜨고 지금 부를 글자가 차례로 밝아져요. 예비박 네 번 뒤 시작합니다. <b>반주만(MR)</b>으로 모둠이 직접 불러 보세요.</p>
+      <div class="row"><button class="btn" type="button" id="karaBtn">🎤 노래방 · 발표 모드</button></div>
+      <hr class="sep">
+      <h2>과정 보고서 <small>포트폴리오 · 수행평가 근거</small></h2>
+      <p>노랫말, 고른 편곡과 이유, 마디별 수정 기록, 자기평가, 완성 악보를 한 장으로 엮어요. 인쇄 창에서 PDF로 저장할 수 있어요.</p>
+      <div class="row"><button class="btn ghost" type="button" id="reportBtn">📄 과정 보고서 만들기</button></div>
+    </div>
+    <div class="card">
+      <h2>자기평가 · 성찰 <small>모둠이 함께</small></h2>
+      <ol class="rubric" id="rubric"></ol>
+      <label class="fld"><span>가장 잘된 점</span><textarea id="refGood" rows="2" maxlength="200" placeholder="예: 후렴 첫 박에 '우리'가 와서 또렷하게 들린다."></textarea></label>
+      <label class="fld"><span>다음에 바꾸고 싶은 점</span><textarea id="refNext" rows="2" maxlength="200" placeholder="예: 3줄 끝이 너무 높아 부르기 힘들었다."></textarea></label>
     </div>
   </div>
 </section>
@@ -381,6 +429,14 @@
     <h2 id="askT">확인</h2>
     <p id="askP"></p>
     <div class="row"><button class="btn ghost" type="button" data-close>취소</button><button class="btn" type="button" id="askOk">계속</button></div>
+  </div>
+</dialog>
+<dialog class="dlg" id="snapDlg" aria-labelledby="snapT">
+  <div class="dlg-in">
+    <h2 id="snapT">작업 기록</h2>
+    <p>남겨 둔 상태로 되돌릴 수 있어요. 새 곡 시작·예시곡·파일 열기 전에는 자동으로 남깁니다. (이 기기 브라우저에 최근 10개)</p>
+    <ol class="snaps" id="snapList"></ol>
+    <div class="row"><button class="btn" type="button" data-close>닫기</button></div>
   </div>
 </dialog>
 <input type="file" id="openFile" accept=".json,application/json" hidden>

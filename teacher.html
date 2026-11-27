@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>교사용 모아보기 · LIVE SCORE</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="app.css?v=7">
+<style>
+body{padding-bottom:40px}
+.t-main{max-width:calc(var(--wide) + var(--pad)*2);margin:0 auto;padding:26px var(--pad)}
+.t-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.t-head h1{font-size:30px}
+.t-drop{display:flex;flex-direction:column;align-items:center;gap:6px;border:2px dashed #cfc8bb;border-radius:var(--r-lg);padding:30px;background:var(--surface);text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.t-drop.over{border-color:var(--brand);background:var(--brand-soft)}
+.t-drop input{display:none}
+.t-drop b{font-size:17px}.t-drop span{color:var(--mute);font-size:14px}
+.t-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+.t-stats div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.t-stats b{display:block;font-size:26px;letter-spacing:-.03em;line-height:1.2}.t-stats span{font-size:12.5px;color:var(--mute)}
+.t-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;font-size:13.5px}
+.t-table th{background:var(--surface-2);font-size:12px;color:var(--mute);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+.t-table td{padding:11px 12px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+.t-table tr:last-child td{border-bottom:0}
+.t-table tbody tr{cursor:pointer;transition:background .12s}
+.t-table tbody tr:hover{background:#FCFBF8}.t-table tbody tr.on{background:var(--brand-soft)}
+.dots{display:flex;gap:3px}.dots i{width:16px;height:16px;border-radius:50%;background:#E6E1D8;font-style:normal;font-size:9.5px;font-weight:800;color:#9c968b;display:grid;place-items:center}
+.dots i.d{background:var(--brand);color:#fff}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+.pill.warn{background:var(--orange-soft);border-color:#efcfa9;color:#8a4a10}
+.t-detail{margin-top:20px}
+.t-detail .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.t-detail ol.lyr li{padding:2px 0}.t-detail ol.lyr li.ch{color:var(--brand);font-weight:700}
+.t-log li{padding:9px 0;border-bottom:1px solid var(--line-2);font-size:14px}.t-log li b{margin-right:8px}.t-log li small{display:block}
+.t-rub li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:13.5px}.t-rub li b{color:var(--brand);white-space:nowrap}
+.t-note{font-size:13px;color:var(--mute);margin-top:12px}
+@media (max-width:860px){.t-stats{grid-template-columns:1fr 1fr}.t-detail .two{grid-template-columns:1fr}.t-table{display:block;overflow:auto}}
+@media print{.t-drop,.t-actions,.btn{display:none!important}.t-table tbody tr{cursor:default}body{background:#fff}}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="brand" href="./" aria-label="실시간 악보로"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/></svg></span><span class="brand-t"><b>실시간 악보</b><small>LIVE SCORE</small></span></a>
+  <div class="proj">교사용 모아보기</div>
+  <div class="badges t-actions"><button class="tbtn ghost" id="csvBtn" type="button" disabled>CSV로 받기</button><button class="tbtn ghost" id="printBtn" type="button">인쇄</button><button class="tbtn" id="clearBtn" type="button">모두 비우기</button></div>
+</div></header>
+<main class="t-main" id="main">
+  <div class="t-head"><div><p class="kicker">TEACHER VIEW</p><h1>모둠 작업 한눈에 보기</h1><p class="sub">모둠마다 메뉴 → <b>프로젝트 파일로 저장(.json)</b>한 파일을 한꺼번에 끌어다 놓으세요. 파일은 이 브라우저 안에서만 읽고, 어디에도 올리지 않습니다.</p></div></div>
+  <label class="t-drop" id="drop" tabindex="0"><input type="file" id="files" accept=".json,application/json" multiple><b>.livescore.json 파일을 여기에 끌어다 놓기</b><span>또는 눌러서 여러 파일 고르기 · 같은 모둠 파일을 다시 넣으면 새것으로 바뀝니다</span></label>
+  <div class="t-stats" id="stats" hidden></div>
+  <div id="tableWrap" hidden>
+    <table class="t-table"><thead><tr><th>모둠</th><th>곡 제목</th><th>단계 진행</th><th>가사</th><th>선율</th><th>조·빠르기</th><th>고른 편곡</th><th>수정 결정<br><small>내 것 : 편곡</small></th><th>자기평가</th></tr></thead><tbody id="rows"></tbody></table>
+  </div>
+  <section class="t-detail" id="detail" hidden></section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="lib/abcjs-basic-min.js"></script>
+<script type="module" src="js/teacher.js?v=7"></script>
+</body>
+</html>
