@@ -87,7 +87,7 @@ export function createMic(SND, { onOn, onOff, onPitch }) {
 
 // ── 노래방·발표 모드 ──
 // lines: [{text, chorus, syl:[{t, s, e}]}]  tracks(withVoice) → 재생 트랙
-export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineOf = s => Math.floor(s / 32) }) {
+export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineOf = s => Math.floor(s / 32), photo = null }) {
   const BAR = 16, LEAD = BAR;
   const el = document.createElement('div');
   el.className = 'kara'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', '노래방·발표 모드');
@@ -95,6 +95,7 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineO
     <div class="kara-ctl"><button type="button" data-k="song">▶ 노래와 반주</button><button type="button" data-k="mr">▶ 반주만(MR)</button><button type="button" data-k="stop">■ 멈춤</button><button type="button" data-k="close" aria-label="닫기">닫기 ✕</button></div></div>
     <div class="kara-mid"><p class="kara-count"></p><div class="kara-cur"></div><div class="kara-next"></div></div>
     <p class="kara-msg"></p><div class="kara-bar"><i></i></div>`;
+  if (photo) { el.classList.add('has-photo'); el.style.backgroundImage = `linear-gradient(rgba(8,12,10,.8),rgba(8,12,10,.9)),url(${photo})`; }
   document.body.appendChild(el); document.body.classList.add('kara-open');
   const msg = el.querySelector('.kara-msg'), cur = el.querySelector('.kara-cur'), nxt = el.querySelector('.kara-next'), cnt = el.querySelector('.kara-count'), prog = el.querySelector('.kara-bar i');
   let li = -1, raf = null, st = 0; // st: 악보 첫 자리(전주·못갖춘마디면 음수)
@@ -183,7 +184,7 @@ body{font-family:'Pretendard Variable',Pretendard,'Malgun Gothic',sans-serif;col
 .bar{display:flex;justify-content:space-between;align-items:center;max-width:820px;margin:18px auto 0;gap:10px}
 .bar button{font:inherit;font-weight:700;background:#16181B;color:#fff;border:0;border-radius:9px;padding:9px 16px;cursor:pointer}
 .bar small{color:#7E838A}
-header{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:end;border-bottom:2px solid #16181B;padding-bottom:16px}
+header{display:grid;grid-template-columns:${d.photo ? '128px ' : ''}1fr auto;gap:18px;align-items:end;border-bottom:2px solid #16181B;padding-bottom:16px}
 .k{font-size:10.5px;letter-spacing:.16em;color:#A9844B;font-weight:800}
 h1{font-size:28px;letter-spacing:-.03em;line-height:1.2;margin-top:4px}
 .meta{text-align:right;font-size:12px;color:#3B4046}
@@ -194,7 +195,7 @@ h2{font-size:15px;margin:24px 0 10px;display:flex;align-items:center;gap:8px}h2 
 .lyr li{list-style:none;padding:2px 0}.lyr li.ch{color:#1F4D3A;font-weight:700}.lyr li.ch::after{content:' 후렴';font-size:10px;color:#A9844B}
 .nums{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.nums div{background:#FAF9F6;border:1px solid #E4E0D7;border-radius:10px;padding:10px;text-align:center}.nums b{display:block;font-size:20px;letter-spacing:-.03em}.nums span{font-size:11px;color:#7E838A}
 table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{border-bottom:1px solid #EEEBE4;padding:6px 6px;text-align:left;vertical-align:top}th{font-size:11px;color:#7E838A;font-weight:700}
-.mu{color:#7E838A}.prog{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#3B4046}
+.ph{width:128px;height:96px;object-fit:cover;border-radius:10px}.mu{color:#7E838A}.prog{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#3B4046}
 .score svg{width:100%!important;height:auto}
 .rub td:last-child{white-space:nowrap;font-weight:700;color:#1F4D3A}
 .q{white-space:pre-wrap}
@@ -202,7 +203,7 @@ table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{border-bottom:1
 </style></head><body>
 <div class="bar"><small>인쇄 창에서 'PDF로 저장'을 고르면 포트폴리오 파일이 됩니다.</small><button onclick="print()">인쇄 · PDF로 저장</button></div>
 <main class="page">
-<header><div><p class="k">LIVE SCORE · 창작 과정 보고서</p><h1>${esc(d.title)}</h1><div class="roles">${roles}</div></div>
+<header>${d.photo ? `<img class="ph" src="${d.photo}" alt="모둠 사진">` : ''}<div><p class="k">LIVE SCORE · 창작 과정 보고서</p><h1>${esc(d.title)}</h1><div class="roles">${roles}</div></div>
 <div class="meta">${esc(d.group || '')}<br>${esc(d.keyName)} · ♩=${d.tempo} · ${d.bars}마디<br>${esc(d.date)}</div></header>
 <h2><i>1</i>노랫말과 장면</h2>
 <div class="two"><div class="box"><ol class="lyr">${d.lyrics.map(l => `<li class="${l.chorus ? 'ch' : ''}">${esc(l.text) || '<span class="mu">(빈 줄)</span>'}</li>`).join('')}</ol></div>

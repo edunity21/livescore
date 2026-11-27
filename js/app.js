@@ -8,6 +8,7 @@ import qrcode from '../lib/qrcode.mjs';
 import { createEditor, activeEditor } from './editor.js?v=10';
 import * as PLUS from './plus.js?v=10';
 import * as ORCH from './orch.js?v=10';
+import * as CAM from './cam.js?v=10';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -296,6 +297,7 @@ function fillSetup() {
   $('#fTitle').value = S.title; $('#fGroup').value = S.group;
   $$('[data-role]').forEach(i => { i.value = S.roles[i.dataset.role] || ''; });
   $$('#fMode input').forEach(r => { r.checked = r.value === S.mode; });
+  photoUI();
 }
 $('#setupForm').addEventListener('submit', e => {
   e.preventDefault();
@@ -1646,7 +1648,7 @@ $('#karaBtn').onclick = () => {
   stopPlay();
   PLUS.openKaraoke({
     title: S.title || '우리 노래', sub: [S.group, C.KEYS[S.key].name, '♩=' + S.tempo].filter(Boolean).join(' · '), tempo: S.tempo, bars: totalBars(),
-    lines: PLUS.karaLines(C, S.melody, S.lyrics), SND, lineOf: C.lineOf,
+    lines: PLUS.karaLines(C, S.melody, S.lyrics), SND, lineOf: C.lineOf, photo: S.photo,
     tracks: withVoice => verTracks({ parts: finalParts().parts }, withVoice ? S.melody : null).filter(t => withVoice || t.inst !== 'voice'),
   });
 };
@@ -1665,7 +1667,7 @@ $('#refNext').oninput = e => { S.reflect.next = e.target.value; save(); };
 $('#reportBtn').onclick = () => {
   const v = chosen(), svgHtml = scoreSvg();
   const ok = PLUS.openReport({
-    title: S.title || '우리 노래', group: S.group, roles: S.roles, roleNames: ROLE, keyName: C.KEYS[S.key].name, tempo: S.tempo, bars: totalBars(),
+    title: S.title || '우리 노래', group: S.group, photo: S.photo, roles: S.roles, roleNames: ROLE, keyName: C.KEYS[S.key].name, tempo: S.tempo, bars: totalBars(),
     date: new Date().toLocaleDateString('ko-KR'), lyrics: S.lyrics, scene: S.arr.scene, why: S.arr.why, verName: v ? `${v.id} · ${v.name}` : '', prog: v ? progression(v) : '',
     syl: S.lyrics.reduce((a, l) => a + C.syllables(l.text).length, 0), notes: S.melody.length, counts: counts(), vlab: vlab(v),
     log: S.log.map(l => ({ ...l, who: l.who === 'all' ? '모둠 전체' : roleName(l.who) })), reflect: S.reflect || { items: {} }, svg: svgHtml,
@@ -1755,6 +1757,157 @@ async function viewer(hash) {
     save(); history.replaceState(null, '', location.pathname); location.reload();
   }, '가져오기');
   return true;
+}
+
+// ── 카메라: 모둠 사진 · 에어 건반 · 그림 선율 · 손 지휘 빠르기 · 뮤직비디오 ──
+const CAMD = { mode: null, cam: null, job: null, raf: null, ct: null, img: null, mv: null, bpm: null, tick: null };
+const CAM_TXT = {
+  photo: ['📸 모둠 사진', '모둠원이 화면에 모두 들어오게 서서 찍어요.'],
+  air: ['🖐 에어 건반', '위쪽 칸에 손을 넣으면 그 음이 울려요. ● 녹음을 누르면 예비박 뒤 선율이 기록돼요. 밝은 곳에서, 뒤 배경은 움직이지 않게.'],
+  draw: ['✏️ 그림 선율', '흰 종이에 굵은 펜으로 왼쪽에서 오른쪽으로 선율선을 하나 그려 비추거나, 사진을 올려요. 높이 올라간 곳이 높은 음이 됩니다.'],
+  tempo: ['👋 손 지휘 빠르기', '카메라 앞에서 지휘하듯 손을 크게 내렸다 올려요. 내리는 순간이 한 박 — 네 번쯤 하면 빠르기가 나와요.'],
+  mv: ['🎬 우리 노래 뮤직비디오', '카메라 화면 위에 가사 자막이 흐르고, 반주와 우리 노래가 함께 녹화돼요. 이어폰을 끼면 반주 소리가 노래 녹음에 섞이지 않아요.'],
+};
+function camCtl(mode) {
+  if (mode === 'photo') return `<button class="btn" type="button" data-c="shot">📸 찍기</button><span class="state" id="camState"></span>`;
+  if (mode === 'air') return `<button class="btn rec-btn" type="button" data-c="rec">● 녹음</button><span class="state" id="camState">${esc($('#recState').textContent)}</span>`;
+  if (mode === 'draw') return `<button class="btn" type="button" data-c="grab">📷 이 장면으로 선 찾기</button><label class="btn ghost" tabindex="0">🖼 사진 올리기<input type="file" accept="image/*" data-c="file"></label><button class="btn ghost" type="button" data-c="live" hidden>↺ 다시 비추기</button><button class="btn" type="button" data-c="apply" disabled>♪ 선율로 만들기</button><span class="state" id="camState"></span>`;
+  if (mode === 'tempo') return `<span class="big" id="camBpm">♩= —</span><button class="btn" type="button" data-c="setTempo" disabled>이 빠르기로 정하기</button><button class="btn ghost" type="button" data-c="reset">다시 재기</button><span class="state" id="camState">지금 빠르기 ♩=${S.tempo}</span>`;
+  if (mode === 'mv') return `<label class="chk"><input type="checkbox" id="mvMic" checked>마이크로 우리 노래도 함께</label><label class="chk"><input type="checkbox" id="mvGuide">안내 선율 소리</label><button class="btn rec-btn" type="button" data-c="mv">● 녹화 시작</button><span class="state" id="camState"></span>`;
+  return '';
+}
+async function camOpen(mode) {
+  if (mode === 'mv' && !S.melody.length) return toast('아직 선율이 없어요');
+  stopPlay();
+  const d = $('#camDlg');
+  CAMD.mode = mode; CAMD.ct = null; CAMD.img = null; CAMD.bpm = null;
+  $('#camT').textContent = CAM_TXT[mode][0]; $('#camSub').textContent = CAM_TXT[mode][1];
+  $('#camCtl').innerHTML = camCtl(mode);
+  if (!d.open) d.showModal();
+  const cv = $('#camView'), g = cv.getContext('2d');
+  g.fillStyle = '#111'; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = '#bbb'; g.font = '16px Pretendard,sans-serif'; g.textAlign = 'center'; g.fillText('카메라를 여는 중…', cv.width / 2, cv.height / 2);
+  try { CAMD.cam = await CAM.openCam(); }
+  catch (x) { g.fillStyle = '#111'; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = '#eee'; g.fillText(CAM.camErr(x), cv.width / 2, cv.height / 2); if (mode === 'draw') $('#camState').textContent = '카메라 없이 사진 올리기로 할 수 있어요'; return; }
+  if (CAMD.mode !== mode || !d.open) { CAMD.cam.stop(); CAMD.cam = null; return; }
+  if (mode === 'air') {
+    const t = C.KEYS[S.key].tonic, base = 60 + t - (t > 6 ? 12 : 0);
+    const notes = [0, 2, 4, 5, 7, 9, 11, 12].map(x => ({ p: base + x, label: C.solName(base + x, S.key) }));
+    CAMD.job = CAM.airKeys(CAMD.cam, cv, { notes, onOn: (p, time) => MIDI.injectMidi({ on: true, p, v: 92, time }), onOff: (p, time) => MIDI.injectMidi({ on: false, p, v: 0, time }) });
+    CAMD.tick = setInterval(() => { const st = $('#camState'); if (st) st.textContent = $('#recState').textContent; const rb = $('#camCtl [data-c=rec]'); if (rb) { rb.textContent = U.rec ? '■ 멈춤' : '● 녹음'; rb.classList.toggle('playing', !!U.rec); } }, 200);
+  } else if (mode === 'tempo') {
+    CAMD.job = CAM.conductTempo(CAMD.cam, cv, { onBeat: (bpm, n) => { if (bpm) { CAMD.bpm = Math.max(40, Math.min(200, bpm)); $('#camBpm').textContent = '♩=' + CAMD.bpm; $('#camCtl [data-c=setTempo]').disabled = false; } else $('#camBpm').textContent = '박 ' + n; SND.click(SND.audio().currentTime + .01, n % 4 === 1); } });
+  } else camLive();
+}
+function camLive() { // 미리 보기(그림 선율은 종이 그대로, 나머지는 거울처럼)
+  const cv = $('#camView'), g = cv.getContext('2d'), mirror = CAMD.mode !== 'draw';
+  cancelAnimationFrame(CAMD.raf);
+  const loop = () => {
+    if (!CAMD.cam || CAMD.img) return;
+    g.save(); if (mirror) { g.translate(cv.width, 0); g.scale(-1, 1); } g.drawImage(CAMD.cam.video, 0, 0, cv.width, cv.height); g.restore();
+    if (CAMD.mode === 'mv' && CAMD.mvDraw) CAMD.mvDraw(g, cv.width, cv.height);
+    CAMD.raf = requestAnimationFrame(loop);
+  };
+  loop();
+}
+function camStop() {
+  cancelAnimationFrame(CAMD.raf); clearInterval(CAMD.tick);
+  if (CAMD.job) { CAMD.job.stop(); CAMD.job = null; }
+  if (CAMD.mv) { CAMD.mv.stop(); }
+  if (CAMD.cam) { CAMD.cam.stop(); CAMD.cam = null; }
+  if (U.rec && CAMD.mode === 'air') stopRec();
+  CAMD.mode = null; CAMD.mvDraw = null;
+}
+$('#camX').onclick = () => $('#camDlg').close();
+$('#camDlg').addEventListener('close', camStop);
+$('#camCard').addEventListener('click', e => { const b = e.target.closest('[data-cam]'); if (b) camOpen(b.dataset.cam); });
+$('#photoBtn').onclick = () => camOpen('photo');
+$('#mvBtn').onclick = () => camOpen('mv');
+$('#photoDel').onclick = () => { S.photo = null; save(); photoUI(); };
+function photoUI() { const el = $('#groupPhoto'); el.classList.toggle('has', !!S.photo); el.style.backgroundImage = S.photo ? `url(${S.photo})` : ''; $('#photoDel').hidden = !S.photo; }
+// 그림 선율: 찾은 선과 뽑을 음을 그림 위에 보여 준다
+function drawContour() {
+  const cv = $('#camView'), g = cv.getContext('2d'), W = cv.width, H = cv.height, img = CAMD.img;
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const k = Math.min(W / (img.width || img.videoWidth), H / (img.height || img.videoHeight)), iw = (img.width || img.videoWidth) * k, ih = (img.height || img.videoHeight) * k, ox = (W - iw) / 2, oy = (H - ih) / 2;
+  g.globalAlpha = .55; g.drawImage(img, ox, oy, iw, ih); g.globalAlpha = 1;
+  const ct = CAMD.ct; if (!ct) return;
+  g.strokeStyle = '#C6613F'; g.lineWidth = 4; g.lineJoin = 'round'; g.beginPath(); let pen = false;
+  ct.ys.forEach((y, x) => { if (y == null) { pen = false; return; } const X = ox + x / ct.W * iw, Y = oy + (1 - y) * ih; if (pen) g.lineTo(X, Y); else g.moveTo(X, Y); pen = true; }); g.stroke();
+  const ns = camMelody(); const L = S.lyrics.length;
+  ns.forEach(n => { const li = C.lineOf(n.s), f = (li + Math.min(.96, (n.s - C.lineStart(li)) / (C.BAR * 2))) / L; const X = ox + (ct.x0 + (ct.x1 - ct.x0) * f) * iw; g.fillStyle = '#1F4D3A'; g.beginPath(); g.arc(X, oy + 14 + (76 - n.p) / 18 * (ih - 28), 6, 0, 7); g.fill(); });
+  $('#camState').textContent = `음 ${ns.length}개 · ${L}줄 · 줄마다 가사 글자 수만큼`;
+}
+function camMelody() {
+  return CAM.contourMelody(CAMD.ct, { lines: S.lyrics, syll: S.lyrics.map(l => C.syllables(l.text).length), key: S.key, tonic: C.KEYS[S.key].tonic, scale: C.MAJOR, lo: 60, hi: 76, lineStart: C.lineStart, BAR: C.BAR });
+}
+function camUseImage(img) {
+  CAMD.img = img; cancelAnimationFrame(CAMD.raf);
+  CAMD.ct = CAM.contourFrom(img);
+  $('#camCtl [data-c=live]').hidden = !CAMD.cam; $('#camCtl [data-c=apply]').disabled = !CAMD.ct;
+  drawContour();
+  if (!CAMD.ct) $('#camState').textContent = '선을 찾지 못했어요 — 흰 종이에 굵고 진하게, 가로로 길게 그려요';
+}
+$('#camCtl').addEventListener('change', e => {
+  const f = e.target.closest('[data-c=file]'); if (!f || !f.files[0]) return;
+  const img = new Image(); img.onload = () => { camUseImage(img); URL.revokeObjectURL(img.src); }; img.src = URL.createObjectURL(f.files[0]); f.value = '';
+});
+$('#camCtl').addEventListener('click', async e => {
+  const b = e.target.closest('[data-c]'); if (!b) return;
+  const c = b.dataset.c;
+  if (c === 'shot' && CAMD.cam) { S.photo = CAM.snapshot(CAMD.cam); save(); photoUI(); $('#camDlg').close(); toast('모둠 사진을 넣었어요'); }
+  if (c === 'rec') $('#recBtn').click();
+  if (c === 'grab' && CAMD.cam) { const cv = document.createElement('canvas'); cv.width = CAMD.cam.video.videoWidth; cv.height = CAMD.cam.video.videoHeight; cv.getContext('2d').drawImage(CAMD.cam.video, 0, 0); camUseImage(cv); }
+  if (c === 'live') { CAMD.img = null; CAMD.ct = null; b.hidden = true; $('#camCtl [data-c=apply]').disabled = true; $('#camState').textContent = ''; camLive(); }
+  if (c === 'apply' && CAMD.ct) {
+    const ns = camMelody().map(n => ({ id: C.uid(), p: n.p, s: n.s, d: n.d, lx: 'n' }));
+    const doit = () => { pushHist(); S.melody = ns; S.take = null; save(); $('#camDlg').close(); refresh(); toast(`그림 선율로 음 ${ns.length}개를 만들었어요 — 4단계에서 다듬어요`); };
+    if (S.melody.length) ask('지금 선율이 그림 선율로 바뀌어요(되돌리기 가능). 바꿀까요?', doit, '바꾸기'); else doit();
+  }
+  if (c === 'setTempo' && CAMD.bpm) { S.tempo = CAMD.bpm; save(); r3(); $('#camState').textContent = `빠르기를 ♩=${S.tempo}로 정했어요`; toast(`빠르기 ♩=${S.tempo}`); }
+  if (c === 'reset' && CAMD.job) { CAMD.job.reset(); CAMD.bpm = null; $('#camBpm').textContent = '♩= —'; b.previousElementSibling.disabled = true; }
+  if (c === 'mv') { if (CAMD.mv) { CAMD.mv.stop(); return; } mvRecord(b); }
+});
+// 뮤직비디오: 카메라 + 가사 자막 + 반주(+노래) 녹화
+async function mvRecord(btn) {
+  if (!CAMD.cam) return toast('카메라가 켜지지 않았어요');
+  const LEAD = C.BAR, guide = $('#mvGuide').checked, mic = $('#mvMic').checked;
+  const base = verTracks({ parts: finalParts().parts }, guide ? S.melody : null);
+  if (!base.length) return toast('들려줄 소리가 없어요 — 6단계에서 편곡을 고르거나 안내 선율을 켜요');
+  const st = Math.min(0, ...base.flatMap(t => t.notes.map(n => n.s)));
+  const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD - st })) }));
+  tr.push({ inst: 'click', notes: [0, 4, 8, 12].map(s => ({ p: s ? 84 : 96, s, d: 1 })), vol: .9 });
+  const total = LEAD - st + units(), u = 60 / S.tempo / 4;
+  const lines = PLUS.karaLines(C, S.melody, S.lyrics), ttl = S.title || '우리 노래', sub = [S.group, C.KEYS[S.key].name, '♩=' + S.tempo].filter(Boolean).join(' · ');
+  const draw = (g, W, H) => {
+    const raw = SND.position(); const pos = raw == null ? -Infinity : raw - LEAD + st;
+    const gr = g.createLinearGradient(0, H * .55, 0, H); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.78)'); g.fillStyle = gr; g.fillRect(0, H * .55, W, H * .45);
+    g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, W, H * .11);
+    g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.font = `800 ${H * .045}px Pretendard,sans-serif`; g.fillText(ttl, W * .03, H * .045);
+    g.fillStyle = '#E9D3AE'; g.font = `600 ${H * .026}px Pretendard,sans-serif`; g.fillText(sub, W * .03, H * .088);
+    g.textAlign = 'right'; g.fillStyle = 'rgba(255,255,255,.7)'; g.font = `700 ${H * .022}px Pretendard,sans-serif`; g.fillText('LIVE SCORE · 실시간 악보', W * .97, H * .055);
+    if (raw != null && raw < LEAD) { g.textAlign = 'center'; g.fillStyle = '#C9A05A'; g.font = `900 ${H * .2}px Pretendard,sans-serif`; g.fillText(String(4 - Math.floor(raw / 4)), W / 2, H * .45); }
+    const li = Math.max(0, Math.min(lines.length - 1, C.lineOf(Math.max(0, pos)))), L = lines[li];
+    if (L && pos > -Infinity) {
+      g.textAlign = 'left'; const fs = H * .075; g.font = `850 ${fs}px Pretendard,sans-serif`;
+      const parts = L.syl.length ? L.syl : [{ t: '♪ 간주 ♪', s: -1e9, e: -1e9 }];
+      const wsum = parts.reduce((a, x) => a + g.measureText(x.t).width + fs * .12, 0); let x = (W - wsum) / 2;
+      parts.forEach(sy => { g.fillStyle = pos >= sy.s && pos < sy.e ? '#E3B35E' : pos >= sy.e ? '#fff' : 'rgba(255,255,255,.5)'; g.fillText(sy.t, x, H * .84); x += g.measureText(sy.t).width + fs * .12; });
+      const N = lines[li + 1]; if (N && N.syl.length) { g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,.55)'; g.font = `700 ${H * .04}px Pretendard,sans-serif`; g.fillText(N.syl.map(y => y.t).join(''), W / 2, H * .93); }
+    }
+    g.fillStyle = 'rgba(255,255,255,.2)'; g.fillRect(0, H - 6, W, 6); g.fillStyle = '#C9A05A'; g.fillRect(0, H - 6, W * Math.max(0, Math.min(1, (raw || 0) / total)), 6);
+  };
+  cancelAnimationFrame(CAMD.raf);
+  CAMD.mvDraw = (g, W, H) => draw(g, W, H);
+  let mv;
+  try { mv = await CAM.recordMV({ cam: CAMD.cam, audioCtx: SND.audio(), tap: SND.master, withMic: mic, durationMs: (total * u + 1.2) * 1000, draw, onTick: (el, src) => { const cv = $('#camView'); cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height); } }); }
+  catch (x) { toast(x.message || '녹화를 시작하지 못했어요'); camLive(); return; }
+  CAMD.mv = mv; btn.textContent = '■ 멈추고 저장'; btn.classList.add('playing'); $('#camState').textContent = '녹화 중…';
+  SND.play(tr, S.tempo, { from: 0, to: total, onend: () => { if (CAMD.mv === mv) mv.stop(); } });
+  const blob = await mv.done; CAMD.mv = null; SND.stop();
+  btn.textContent = '● 다시 녹화'; btn.classList.remove('playing');
+  download(blob, `${fileBase()}_뮤직비디오.${mv.ext}`);
+  $('#camState').textContent = `저장했어요 · ${(blob.size / 1048576).toFixed(1)}MB (${mv.ext.toUpperCase()}) — 패들렛·클래스룸에 올리거나 발표 때 틀어요`;
+  if (CAMD.cam) camLive();
 }
 
 // ── 시작 ──
