@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=9';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=10';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -62,7 +62,12 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
   push('M:4/4'); push('L:1/16');
   if (showTitle) push(header && header.style ? `Q:"${header.style}" 1/4=${tempo}` : `Q:1/4=${tempo}`);
   ['%%vocalfont "Pretendard" 13', '%%gchordfont "Pretendard" 12', '%%titlefont "Pretendard" 24', '%%subtitlefont "Pretendard" 14', '%%composerfont "Pretendard" 11', '%%voicefont "Pretendard" 11', '%%tempofont "Pretendard" 12', '%%partsfont "Pretendard" 12', '%%annotationfont "Pretendard" 10.5', '%%textfont "Pretendard" 11', '%%partsbox true'].forEach(push);
-  if (showTitle && header && header.info) push('%%center ' + header.info);
+  if (showTitle && header && header.info) { // 편성 줄: 악기가 많으면 여러 줄로(쪽 밖으로 넘치지 않게)
+    const [names, secs] = header.info.split(' | '), out = [];
+    names.split(' · ').forEach(t => { const l = out[out.length - 1]; if (l != null && (l + ' · ' + t).length <= 58) out[out.length - 1] = l + ' · ' + t; else out.push(t); });
+    if (secs) out.push(secs);
+    out.forEach(l => push('%%center ' + l));
+  }
   if (barNumbers) push('%%measurenb 0'); // 줄마다 첫 마디 번호
   if (pickup) push('%%setbarnb 0'); // 못갖춘마디는 0마디
   if (voices.length > 1) push('%%score ' + scoreLine(voices));

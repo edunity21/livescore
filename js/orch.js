@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=9';
+import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=10';
 
 // cat: 편성 칸 묶음 · disp: 적는 음 옥타브(리코더는 한 옥타브 아래로 적는다) · trans: 이조 악기(기보음 = 실음 + trans, 파트보에서 쓴다)
 export const ENS = {
@@ -138,7 +138,7 @@ export function orchestrate(o) {
   const mainK = sections.some(x => kindOf(x.name) === 'chorus') ? 'chorus' : 'verse';
   const octFit = (ns, [lo, hi]) => { if (!ns.length) return []; const med = ns.map(n => n.p).sort((a, b) => a - b)[ns.length >> 1]; const sh = Math.round(((lo + hi) / 2 - med) / 12) * 12; return mono(ns.map(n => ({ ...n, p: fit(n.p + sh, lo, hi) }))); };
   const melIn = k => melody.filter(m => m.p != null && m.s >= 0 && kindAt(m.s) === k).map(m => ({ p: m.p, s: m.s, d: m.d }));
-  const withThird = (ns, range, n) => n < 2 ? ns : ns.map(x => { const q = below3(x.p, tonic); return q == null || q < range[0] - 2 ? x : { ...x, chord: [q, x.p] }; });
+  const withThird = (ns, range, n) => n < 2 ? ns : ns.map(x => { const q = below3(x.p, tonic); return q == null || q < range[0] ? x : { ...x, chord: [q, x.p] }; });
   // 학생 연주용으로 쉽게: 16분음표처럼 아주 짧은 음은 앞 음에 붙인다
   const easy = ns => { const out = []; mono(ns).forEach(n => { const l = out[out.length - 1]; if (n.d < 2 && l && l.s + l.d >= n.s) { l.d += n.d; return; } out.push({ ...n, d: Math.max(2, n.d) }); }); return mono(out); };
   // 길잡이음 대선율: 화음의 3음을 앞 음에서 가장 가깝게 잇고, 박을 나누면 이웃 화음음으로 살짝 움직인다
@@ -151,7 +151,7 @@ export function orchestrate(o) {
       (c.s === lastS ? [[0, c.d]] : pat(c)).forEach(([u, d], k) => {
         if (u >= c.d) return;
         let p = g; if (k % 2 === 1) { const a = nearest(tonesIn([t[0], t[2]], range[0], range[1]), g); if (a != null && Math.abs(a - g) <= 5) p = a; }
-        const lo = players > 1 ? nearest(tonesIn(t, p - 9, p - 3), p - 5) : null;
+        const lo = players > 1 ? nearest(tonesIn(t, Math.max(range[0], p - 9), p - 3), p - 5) : null; // 아랫성부도 악기 음역 안에서만
         out.push({ p, s: c.s + u, d: Math.min(d, c.d - u), chord: lo != null ? [lo, p] : undefined });
       });
     });
@@ -175,7 +175,7 @@ export function orchestrate(o) {
       top = leadIn(info.range);
       top = mono([...top, ...octFit(melIn(mainK), info.range)]);
     }
-    const ns = top.map(x => { if (n < 2) return x; const q = below3(x.p, tonic); return q == null || q < info.range[0] - 2 ? x : { ...x, chord: [q, x.p] }; });
+    const ns = top.map(x => { if (n < 2) return x; const q = below3(x.p, tonic); return q == null || q < info.range[0] ? x : { ...x, chord: [q, x.p] }; });
     add('flute', info, ns, { players: ens.flute, role: 'lead' });
   }
   // 리코더(반 전체도): 전주 훅 + 주 구간 노래 선율을 쉽게 — 2명 이상이면 3도 아래를 함께

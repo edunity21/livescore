@@ -1,13 +1,13 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=9';
-import * as SND from './sound.js?v=9';
-import * as MIDI from './midi.js?v=9';
-import * as SC from './score.js?v=9';
-import * as HUM from './hum.js?v=9';
+import * as C from './core.js?v=10';
+import * as SND from './sound.js?v=10';
+import * as MIDI from './midi.js?v=10';
+import * as SC from './score.js?v=10';
+import * as HUM from './hum.js?v=10';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=9';
-import * as PLUS from './plus.js?v=9';
-import * as ORCH from './orch.js?v=9';
+import { createEditor, activeEditor } from './editor.js?v=10';
+import * as PLUS from './plus.js?v=10';
+import * as ORCH from './orch.js?v=10';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -1636,7 +1636,7 @@ function scoreSvg() {
   return c.outerHTML;
 }
 $('#exSvg').onclick = () => {
-  const svg = scoreSvg(); if (!svg) return toast('아직 악보가 없어요');
+  if (!S.melody.length) return toast('아직 선율이 없어요'); const svg = scoreSvg(); if (!svg) return toast('아직 악보가 없어요');
   download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), fileBase() + '_악보.svg');
   toast('악보 그림(SVG)을 받았어요');
 };
