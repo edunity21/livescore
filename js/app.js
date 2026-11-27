@@ -1411,7 +1411,10 @@ $('#etShift').addEventListener('click', e => {
   const u = +b.dataset.sh;
   if (U.suno.tracks && U.suno.tracks.length && U.suno.slot === v.id && U.suno.cfg) { // MIDI가 아직 열려 있으면 원본에서 다시
     const c = U.suno.cfg; c.off = Math.round(((c.off || 0) - u / 4 * 60 / c.bpm) * 1000) / 1000; c.phase = 0; $('#sOff').value = c.off; buildSuno(false);
-  } else { const d = shiftVer(v, u); if (d == null) return; ed6.clear(); save(); versionsUI(); showEditor6(); if (d !== u) toast('앞으로 옮기면 첫 음이 잘려서, 한 마디를 앞에 두고 옮겼어요'); }
+  } else {
+    const d = shiftVer(v, u); if (d == null) return; ed6.clear(); save(); versionsUI(); showEditor6();
+    if (d !== u) return toast(`모든 파트를 ${Math.abs(u) / 4}박 앞으로 맞췄어요 — 첫 박 앞에 나오는 음이 있어 그 앞에 한 마디(못갖춘마디처럼)를 두었어요`);
+  }
   toast(`모든 파트를 ${Math.abs(u) / 4}박 ${u < 0 ? '앞으로' : '뒤로'} 옮겼어요`);
 });
 // 조옮김 도구: 12개 장조 + 반음 ▲▼ (곡 전체 — 내 선율·자동 편곡·수노 편곡을 함께)
