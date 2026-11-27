@@ -573,3 +573,20 @@ body.kara-open{overflow:hidden}
 .kara-bar{height:6px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
 .kara-bar i{display:block;height:100%;width:0;background:var(--gold)}
 @media print{.kara{display:none!important}}
+
+/* 우리 편성(인원수) */
+.ens-card{margin-bottom:16px}
+.ens-sum{font-size:13px;color:var(--mute);font-weight:650}
+.ens{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;margin:12px 0 4px}
+.ens-i{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 8px;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 10px 9px 12px;background:var(--surface-2)}
+.ens-i.on{border-color:#bcd5c7;background:var(--brand-soft)}
+.ens-i b{font-size:14px}.ens-i small{grid-column:1/3;font-size:11.5px;color:var(--mute);line-height:1.35}
+.ens-st{display:flex;align-items:center;gap:4px}
+.ens-st button{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:#fff;font-weight:800;line-height:1}
+.ens-st output{min-width:22px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+/* 악보 스크롤 보기: 왼쪽 보표 머리 고정 */
+.ed-score.scrollview{position:relative}
+.ed-head{position:absolute;left:0;top:0;z-index:4;background:#fff;pointer-events:auto;box-shadow:6px 0 10px -8px rgba(0,0,0,.35);overflow:hidden;will-change:transform}
+.ed-head[hidden]{display:none}
+.ed-head svg{display:block}
+@media print{.ed-head{display:none!important}}

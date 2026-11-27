@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=7';
+import { BAR } from './core.js?v=8';
 
 let ctx = null, master = null;
 export function audio() {
@@ -102,6 +102,12 @@ function drum(c, out, p, t, vel) {
     g.gain.setValueAtTime(.9 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .32);
     o.connect(g); o.start(t); o.stop(t + .35); o.onended = () => { try { g.disconnect(); } catch (e) { } }; return;
   }
+  if ([41, 43, 45, 47, 48, 50].includes(p)) { // 탐
+    const o = c.createOscillator(); const f0 = { 41: 82, 43: 98, 45: 120, 47: 140, 48: 160, 50: 185 }[p];
+    o.frequency.setValueAtTime(f0 * 1.6, t); o.frequency.exponentialRampToValueAtTime(f0, t + .09);
+    g.gain.setValueAtTime(.7 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .45);
+    o.connect(g); o.start(t); o.stop(t + .5); o.onended = () => { try { g.disconnect(); } catch (e) { } }; return;
+  }
   const src = c.createBufferSource(); src.buffer = noise(c);
   const f = c.createBiquadFilter();
   if (p === 38 || p === 40 || p === 37) { // 작은북
@@ -109,9 +115,12 @@ function drum(c, out, p, t, vel) {
     g.gain.setValueAtTime(.55 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .18);
     const o = c.createOscillator(); o.type = 'triangle'; o.frequency.value = 190; const og = c.createGain();
     og.gain.setValueAtTime(.35 * vel, t); og.gain.exponentialRampToValueAtTime(.001, t + .08); o.connect(og); og.connect(out); o.start(t); o.stop(t + .1);
-  } else if (p === 49 || p === 57 || p === 51) { // 심벌
+  } else if (p === 49 || p === 57) { // 심벌
     f.type = 'highpass'; f.frequency.value = 5000;
     g.gain.setValueAtTime(.32 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + 1.2);
+  } else if (p === 51 || p === 59 || p === 53) { // 라이드
+    f.type = 'bandpass'; f.frequency.value = 6500; f.Q.value = 1.2;
+    g.gain.setValueAtTime(.2 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .5);
   } else { // 하이햇 · 기타
     f.type = 'highpass'; f.frequency.value = 7500;
     g.gain.setValueAtTime(.22 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);
@@ -142,7 +151,7 @@ export function click(t, accent) {
 // tracks: [{inst:'voice'|'keys'|..|'drum', notes:[{p,s,d,chord?,kit?}], vol}]
 const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys', strings: 'strings', flute: 'flute', brass: 'brass', melody: 'voice' };
 export function soundOf(id) { return INST_SOUND[id] || 'keys'; }
-const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49 };
+const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45 };
 
 // 재생할 음을 시작 순서대로 한 줄로
 function flatten(tracks, from, to) {
@@ -174,7 +183,7 @@ export function play(tracks, tempo, opts = {}) {
   stop();
   const c = audio();
   const bus = c.createGain(); bus.connect(master);
-  const from = opts.from || 0, to = opts.to ?? Infinity;
+  const from = opts.from ?? Math.min(0, ...tracks.map(t => t.notes.reduce((a, n) => Math.min(a, n.s), 0))), to = opts.to ?? Infinity; // 전주·못갖춘마디(음수 자리)부터
   const ev = flatten(tracks, from, to), u = 60 / tempo / 4;
   const endU = ev.reduce((a, e) => Math.max(a, Math.min(e.n.s + e.n.d, to)), from);
   const t0 = c.currentTime + .12;

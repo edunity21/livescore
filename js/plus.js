@@ -87,7 +87,7 @@ export function createMic(SND, { onOn, onOff, onPitch }) {
 
 // ── 노래방·발표 모드 ──
 // lines: [{text, chorus, syl:[{t, s, e}]}]  tracks(withVoice) → 재생 트랙
-export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
+export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineOf = s => Math.floor(s / 32) }) {
   const BAR = 16, LEAD = BAR;
   const el = document.createElement('div');
   el.className = 'kara'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', '노래방·발표 모드');
@@ -97,7 +97,7 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
     <p class="kara-msg"></p><div class="kara-bar"><i></i></div>`;
   document.body.appendChild(el); document.body.classList.add('kara-open');
   const msg = el.querySelector('.kara-msg'), cur = el.querySelector('.kara-cur'), nxt = el.querySelector('.kara-next'), cnt = el.querySelector('.kara-count'), prog = el.querySelector('.kara-bar i');
-  let li = -1, raf = null;
+  let li = -1, raf = null, st = 0; // st: 악보 첫 자리(전주·못갖춘마디면 음수)
   const lineHtml = (L, i) => L ? `<p class="${L.chorus ? 'ch' : ''}" data-li="${i}">${L.syl.length ? L.syl.map((x, k) => `<span data-k="${k}">${esc(x.t)}</span>`).join('') : '<span class="rest">♪ 간주 ♪</span>'}</p>` : '';
   function show(i) {
     li = i;
@@ -108,10 +108,10 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
   function frame() {
     const raw = SND.position();
     if (raw == null) { cnt.textContent = ''; return; }
-    const pos = raw - LEAD;
-    if (pos < 0) { cnt.textContent = String(4 - Math.floor(raw / 4)); show(0); }
-    else cnt.textContent = '';
-    const i = Math.max(0, Math.min(lines.length - 1, Math.floor(Math.max(0, pos) / (BAR * 2))));
+    const pos = raw - LEAD + st;
+    if (raw < LEAD) { cnt.textContent = String(4 - Math.floor(raw / 4)); show(0); }
+    else cnt.textContent = pos < 0 && st < 0 && pos < -BAR / 4 ? '♪' : '';
+    const i = Math.max(0, Math.min(lines.length - 1, lineOf(Math.max(0, pos))));
     if (i !== li) show(i);
     const L = lines[li];
     if (L) cur.querySelectorAll('span[data-k]').forEach(sp => {
@@ -125,9 +125,10 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
     SND.stop();
     const base = tracks(withVoice);
     msg.textContent = !withVoice && !base.length ? '아직 반주가 없어요 — 6단계에서 편곡을 고르면 반주가 나와요. 지금은 박만 세어 줍니다.' : '';
-    const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD })) }));
+    st = Math.min(0, ...base.flatMap(t => t.notes.map(n => n.s)));
+    const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD - st })) }));
     tr.push({ inst: 'click', notes: [0, 4, 8, 12].map(s => ({ p: s ? 84 : 96, s, d: 1 })), vol: .9 });
-    SND.play(tr, tempo, { to: LEAD + bars * BAR, onend: () => { cancelAnimationFrame(raf); cnt.textContent = ''; } }); // 반주가 짧거나 없어도 곡 끝까지
+    SND.play(tr, tempo, { from: 0, to: LEAD - st + bars * BAR, onend: () => { cancelAnimationFrame(raf); cnt.textContent = ''; } }); // 반주가 짧거나 없어도 곡 끝까지
     cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
   }
   function close() { cancelAnimationFrame(raf); SND.stop(); el.remove(); document.body.classList.remove('kara-open'); document.removeEventListener('keydown', key); }
@@ -147,7 +148,7 @@ export function karaLines(C, melody, lyrics) {
   const sorted = melody.filter(n => n.p != null).sort((a, b) => a.s - b.s);
   return lyrics.map((l, li) => {
     const syl = [];
-    sorted.filter(n => n.s >= li * 32 && n.s < (li + 1) * 32).forEach(n => {
+    sorted.filter(n => n.s >= C.lineStart(li) && n.s < C.lineStart(li + 1)).forEach(n => {
       const m = map.get(n.id); if (!m) return;
       if (m.kind === 'syl' && m.text) syl.push({ t: m.text, s: n.s, e: n.s + n.d });
       else if (m.kind === 'ext' && syl.length) syl[syl.length - 1].e = n.s + n.d;

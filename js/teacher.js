@@ -1,8 +1,8 @@
 // LIVE SCORE · 교사용 모아보기 — 모둠 프로젝트 파일(.json) 여러 개를 이 브라우저 안에서만 읽어 한눈에
-import * as C from './core.js?v=7';
-import * as SC from './score.js?v=7';
-import * as SND from './sound.js?v=7';
-import { RUBRIC, LEVELS } from './plus.js?v=7';
+import * as C from './core.js?v=8';
+import * as SC from './score.js?v=8';
+import * as SND from './sound.js?v=8';
+import { RUBRIC, LEVELS } from './plus.js?v=8';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -16,6 +16,7 @@ function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('o
 
 // 학생 화면과 같은 기준으로 단계 완료 여부
 function analyze(S) {
+  C.METER.pickup = S.pickup || 0;
   const melody = S.melody || [], lyrics = S.lyrics || [];
   const vers = (S.arr && S.arr.versions) || [];
   const chosen = vers.find(v => v.id === S.arr.chosen) || null;
@@ -110,7 +111,8 @@ function detail(i) {
       <h3 class="h3">자기평가</h3><ul class="t-rub">${RUBRIC.map((r, k) => `<li><span>${esc(r)}</span><b>${items[k] != null ? LEVELS[items[k]] : '—'}</b></li>`).join('')}</ul>
       <p style="margin-top:8px"><b>잘된 점</b> ${esc(S.reflect && S.reflect.good) || '—'}<br><b>바꾸고 싶은 점</b> ${esc(S.reflect && S.reflect.next) || '—'}</p></div></div>
     <h3 class="h3">노래 악보 <small>${esc(x.file)}</small></h3><div class="score" id="dScore"></div></div>`;
-  const chords = v && v.chords ? v.chords.map(c => ({ s: c.s, name: c.name })) : null;
+  const chords = v && v.chords ? v.chords.filter(c => c.s >= 0).map(c => ({ s: c.s, name: c.name })) : null;
+  C.METER.pickup = S.pickup || 0;
   SC.renderAbc($('#dScore'), SC.buildAbc({ tempo: S.tempo || 92, key: S.key || 'C', bars: A.bars, perLine: 4, showTitle: false, voices: [SC.melodyVoice(S.melody || [], S.lyrics || [], chords)] }), { staffwidth: 980 });
   $('#dClose').onclick = () => { sel = null; el.hidden = true; render(); };
   $('#dPlay').onclick = e => {

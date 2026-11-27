@@ -28,6 +28,10 @@ export function sciName(p, key = 'C') {
 }
 
 export const BAR = 16; // 4/4, 16분음표 단위
+// 못갖춘마디(여린내기): 첫 음이 1마디 첫 박보다 pickup(16분음표 칸)만큼 앞에서 시작.
+// 음표 위치는 1마디 첫 박 = 0 그대로(못갖춘마디 음은 음수), 가사 한 줄은 pickup만큼 앞당겨 시작하고, 마지막 마디는 pickup만큼 짧다.
+export const METER = { pickup: 0 };
+export const PICKUPS = { 0: '갖춘마디', 2: '반 박(♪)', 4: '1박(♩)', 6: '1박 반(♩.)', 8: '2박', 12: '3박' };
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
 // ── 가사: 글자 = 음절 ──
@@ -45,7 +49,7 @@ export function quantize(events, tempo, grid, totalUnits) {
     let end = Math.round(toU(e.t + e.d) / grid) * grid;
     if (end <= s) end = s + grid;
     return { p: e.p, v: e.v, s, d: end - s, raw: e };
-  }).filter(n => n.s >= 0 && n.s < totalUnits);
+  }).filter(n => n.s >= -METER.pickup && n.s < totalUnits);
   // 같은 자리에 겹친 음은 가장 세게·길게 누른 음 하나만
   notes.sort((a, b) => a.s - b.s || b.d - a.d || b.v - a.v);
   const out = [];
@@ -70,29 +74,41 @@ export function quantizeShift(events, tempo, grid) {
   });
 }
 
-// ── 마디·붙임줄 나누기 ──
-// 한 마디 안 위치 p에서 쓸 수 있는 길이(읽기 쉬운 표기)
-function fits(p, v) {
+// ── 마디·붙임줄 나누기 (4/4 기보 규칙) ──
+// · 마디 가운데(3박 앞)를 가리지 않는다 — 마디 처음에서 시작하는 음, 2박의 2분음표(당김) 말고는 3박에서 끊어 붙임줄
+// · 4분음표보다 짧은 음은 박을 넘지 않는다 · 반 마디 안의 ♪♩♪ 당김은 그대로 쓴다
+// · 쉼표는 박을 보여 준다(점쉼표·당김 쉼표 없음)
+const MID = BAR / 2;
+function fits(p, v, rest) {
   if (p + v > BAR) return false;
+  const crossMid = p < MID && p + v > MID;
+  if (rest) {
+    if (v === 16) return p === 0;
+    if (v === 8) return p % 8 === 0;
+    if (v === 4) return p % 4 === 0;
+    if (v === 2) return p % 2 === 0;
+    return v === 1;
+  }
+  if (crossMid && p !== 0 && !(p === 4 && v === 8)) return false;
   switch (v) {
     case 16: return p === 0;
-    case 12: return p === 0 || p === 4;
-    case 8: return p % 8 === 0;
+    case 12: return p === 0;
+    case 8: return p === 0 || p === 8 || p === 4;
     case 6: return p % 4 === 0;
-    case 4: return p % 4 === 0;
-    case 3: return p % 4 === 0;
-    case 2: return p % 2 === 0;
+    case 4: return p % 4 === 0 || p % 4 === 2;
+    case 3: return p % 4 <= 1;
+    case 2: return p % 4 <= 2;
     default: return true;
   }
 }
 const VALS = [16, 12, 8, 6, 4, 3, 2, 1];
-export function splitDur(pos, dur) {
+export function splitDur(pos, dur, rest = false) {
   const out = [];
   let p = pos, left = dur;
   while (left > 0) {
-    const inBar = p % BAR;
+    const inBar = ((p % BAR) + BAR) % BAR;
     const room = Math.min(left, BAR - inBar);
-    let v = VALS.find(x => x <= room && fits(inBar, x)) || 1;
+    let v = VALS.find(x => x <= room && fits(inBar, x, rest)) || 1;
     out.push({ s: p, d: v });
     p += v; left -= v;
   }
@@ -100,12 +116,14 @@ export function splitDur(pos, dur) {
 }
 
 // 하나의 성부(단선율)를 마디별 조각 배열로: [{s,d,p|null,tieNext,tiePrev,ref}]
-export function toPieces(notes, totalUnits) {
-  const seq = [...notes].sort((a, b) => a.s - b.s);
+export function toPieces(notes, totalUnits, start = 0) {
+  const seq = [...notes].filter(n => n.s + n.d > start).sort((a, b) => a.s - b.s);
   const pieces = [];
-  let t = 0;
+  let t = start;
   const pushRest = (from, to) => {
-    for (const r of splitDur(from, to - from)) pieces.push({ s: r.s, d: r.d, p: null });
+    // 쉼표는 마디마다 따로 나눈다
+    let a = from;
+    while (a < to) { const e = Math.min(to, (Math.floor(a / BAR) + 1) * BAR); for (const r of splitDur(a, e - a, true)) pieces.push({ s: r.s, d: r.d, p: null }); a = e; }
   };
   for (const n of seq) {
     if (n.s >= totalUnits) break;
@@ -123,14 +141,16 @@ export function toPieces(notes, totalUnits) {
 
 // ── 가사 흐름(줄 = 2마디) ──
 // 반환: Map(note.id → {text, kind:'syl'|'ext'|'none'}), 줄별 점검
+export function lineStart(li) { return li * BAR * 2 - METER.pickup; }
+export function lineOf(s) { return Math.floor((s + METER.pickup) / (BAR * 2)); }
 export function lyricFlow(melody, lines, linesBars = 2) {
   const map = new Map();
   const report = [];
-  const span = BAR * linesBars;
+  const span = BAR * linesBars, P = METER.pickup;
   const sorted = [...melody].filter(n => n.p != null).sort((a, b) => a.s - b.s);
   lines.forEach((line, li) => {
     const syl = syllables(line.text);
-    const inLine = sorted.filter(n => n.s >= li * span && n.s < (li + 1) * span);
+    const inLine = sorted.filter(n => n.s >= li * span - P && n.s < (li + 1) * span - P);
     let k = 0, slots = 0;
     inLine.forEach((n, i) => {
       if (n.lx === 'e' && i > 0) { map.set(n.id, { text: '', kind: 'ext', line: li }); return; }
@@ -149,9 +169,9 @@ export function lyricFlow(melody, lines, linesBars = 2) {
 
 // 음절 j를 줄 안 음표 t에 오도록 옮기기(끌어 놓기)
 export function placeSyllable(melody, lines, li, j, targetId) {
-  const span = BAR * 2;
+  const span = BAR * 2, P = METER.pickup;
   for (let guard = 0; guard < 24; guard++) {
-    const notes = melody.filter(n => n.p != null && n.s >= li * span && n.s < (li + 1) * span).sort((a, b) => a.s - b.s);
+    const notes = melody.filter(n => n.p != null && n.s >= li * span - P && n.s < (li + 1) * span - P).sort((a, b) => a.s - b.s);
     const ti = notes.findIndex(n => n.id === targetId);
     if (ti < 0) return;
     const { map } = lyricFlow(melody, lines);
@@ -314,8 +334,50 @@ function drumBar(genre, mood, bar, last, chorus, first) {
 }
 
 export function arrange(melody, lines, key, settings, variant = 0, fixed = null) {
-  const k = KEYS[key] || KEYS.C;
   const bars = Math.max(lines.length * 2, Math.ceil(Math.max(0, ...melody.map(n => n.s + n.d)) / BAR), 2);
+  if (!ORCH) return arrangeOld(melody, lines, key, settings, variant, fixed, bars);
+  const r = arrangeOld(melody, lines, key, { ...settings, inst: ['drums', 'bass'] }, variant, fixed, bars); // 화음 진행과 드럼·베이스 리듬 틀
+  const ly = layoutOf(melody, lines, r.chords, settings.intro ?? 2, bars);
+  const chorusBar = b => !!(lines[Math.floor(b / 2)] && lines[Math.floor(b / 2)].chorus);
+  const ens = settings.ens || ensFromInst(settings.inst);
+  const pick = id => (r.parts.find(p => p.inst === id) || {}).notes;
+  const parts = ORCH.orchestrate({ melody, chords: ly.chords, key, bars, start: ly.start, end: ly.end, intro: ly.intro, sections: ly.sections, lead: ly.lead, genre: settings.genre || 'pop', mood: settings.mood || 'bright', ens, chorusBar, old: { drums: pick('drums'), bass: pick('bass') } });
+  return { chords: ly.chords, parts, bars, intro: ly.intro, sections: ly.sections };
+}
+// 곡의 틀: 전주(후렴 첫 두 마디를 악기로) · 마디 구간(Intro/Verse/Chorus) · 악보 처음과 끝
+export function layoutOf(melody, lines, chords, intro, bars) {
+  const P = METER.pickup;
+  intro = Math.max(0, Math.min(4, intro | 0));
+  const melEnd = Math.max(0, ...melody.map(n => n.s + n.d));
+  const out = { intro, start: intro ? -intro * BAR : -P, end: bars * BAR - (intro || melEnd > bars * BAR - P ? 0 : P), sections: [], lead: [], chords: chords.filter(c => c.s >= 0) };
+  if (intro) {
+    const ci = lines.findIndex(l => l.chorus), hs = (ci >= 0 ? ci : 0) * 2 * BAR, len = intro * BAR, sh = -len - hs;
+    const hook = chords.filter(c => c.s >= hs && c.s < hs + len);
+    out.chords = [...hook.map(c => ({ ...c, s: c.s + sh, d: Math.min(c.d, hs + len - c.s) })), ...out.chords];
+    if (!hook.length) for (let b = 0; b < intro; b++) out.chords.unshift({ ...(chords[0] || { r: 0, q: '', name: 'C' }), s: -len + b * BAR, d: BAR });
+    out.chords.sort((a, b) => a.s - b.s);
+    out.lead = melody.filter(n => n.p != null && n.s >= hs && n.s < hs + len).map(n => ({ p: n.p, s: n.s + sh, d: Math.min(n.d, hs + len - n.s) }))
+      .map(n => ({ ...n, d: Math.min(n.d, -P - n.s) })).filter(n => n.d > 0); // 노래 여린내기와 겹치지 않게
+    out.sections.push({ bar: -intro, s: -len, name: 'Intro' });
+  }
+  const seen = {};
+  let prev = null;
+  lines.forEach((l, li) => {
+    const nm = l.chorus ? 'Chorus' : 'Verse';
+    if (nm === prev) return;
+    prev = nm; seen[nm] = (seen[nm] || 0) + 1;
+    out.sections.push({ bar: li * 2, s: li * 2 * BAR, name: seen[nm] > 1 ? `${nm} ${seen[nm]}` : nm });
+  });
+  return out;
+}
+// 편성 엔진(orch.js)은 순환 참조를 피해 나중에 끼운다
+let ORCH = null;
+export function useOrchestrator(o) { ORCH = o; }
+export function ensFromInst(inst = ['drums', 'bass', 'keys', 'guitar']) {
+  return { vocal: 4, keys: inst.includes('keys') ? 1 : 0, guitar: inst.includes('guitar') ? 1 : 0, bass: inst.includes('bass') ? 1 : 0, drums: inst.includes('drums') ? 1 : 0, flute: inst.includes('flute') ? 1 : 0, strings: inst.includes('strings') ? 3 : 0, trombone: inst.includes('brass') ? 2 : 0 };
+}
+function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
+  const k = KEYS[key] || KEYS.C;
   const { genre = 'pop', mood = 'bright', inst = ['drums', 'bass', 'keys', 'guitar'] } = settings;
   const pools = [['I', 'IV', 'V', 'vi'], ['I', 'ii', 'iii', 'IV', 'V', 'vi'], ['I', 'ii', 'IV', 'V', 'vi']];
   const biases = [{ I: .3, IV: .3, V: .3 }, { vi: 1.6, ii: 1.3, iii: 1.1, I: -.4 }, { IV: .4, vi: .5 }];
@@ -539,7 +601,7 @@ export function transformBar(melody, from, to, kind, key) {
 export function barNotes(notes, b) { return notes.filter(n => n.p != null && n.s >= b * BAR && n.s < (b + 1) * BAR).sort((x, y) => x.s - y.s); }
 export function diffBars(mine, ai, bars) {
   const res = [];
-  for (let b = 0; b < bars; b++) {
+  for (let b = METER.pickup ? -1 : 0; b < bars; b++) {
     const A = barNotes(mine, b), B = barNotes(ai, b);
     const sig = x => x.map(n => n.s + ':' + n.d).join(',');
     const pit = x => x.map(n => n.p).join(',');

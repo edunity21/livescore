@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=7">
+<link rel="stylesheet" href="app.css?v=8">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -132,6 +132,7 @@
       <div class="ctl"><span>박자</span><b class="chip on">4/4</b></div>
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
       <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조</option><option value="G">사장조</option><option value="D">라장조</option><option value="A">가장조</option><option value="E">마장조</option><option value="F">바장조</option><option value="Bb">내림나장조</option><option value="Eb">내림마장조</option></select></label>
+      <label class="ctl"><span>첫 마디 <small>여린내기면 못갖춘마디</small></span><select id="pickSel"><option value="0">갖춘마디 (1박부터)</option><option value="2">못갖춘마디 · 반 박</option><option value="4">못갖춘마디 · 1박</option><option value="6">못갖춘마디 · 1박 반</option><option value="8">못갖춘마디 · 2박</option><option value="12">못갖춘마디 · 3박</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
       <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
       <div class="ctl rec">
@@ -253,6 +254,14 @@
 <!-- 6 AI 편곡 -->
 <section class="step" data-step="6" aria-labelledby="h6" hidden>
   <div class="step-head"><p class="kicker">STEP 6 · 3차시 15분</p><h1 id="h6">AI 편곡</h1><p class="one">원하는 느낌과 밴드 악기를 고르면 편곡이 만들어지고, 파트별로 나누어 음표로 바뀝니다.</p></div>
+  <div class="card ens-card" id="ensCard">
+    <div class="h2row"><h2>우리 편성 <small>연주할 사람 수 — 사람 수에 맞춰 실제로 연주할 수 있는 악보로 계산해요</small></h2><span class="ens-sum" id="ensSum"></span></div>
+    <div class="ens" id="ensBox"></div>
+    <div class="ctrl slim">
+      <label class="ctl"><span>전주(Intro) <small>후렴 첫 마디들을 악기로</small></span><select id="introSel"><option value="0">없음</option><option value="2">2마디</option><option value="4">4마디</option></select></label>
+    </div>
+    <p class="hint">관악기·현악기는 한 사람이 한 음, 키보드는 두 손, 기타는 한 사람에 한 보표, 드럼은 두 손과 발로 칠 수 있게만 씁니다. 같은 악기가 여럿이면 화음을 나눠 맡아요.</p>
+  </div>
   <div class="tabs" role="tablist">
     <button type="button" role="tab" data-tab="auto" aria-selected="true">자동 편곡 <small>연습·시연용</small></button>
     <button type="button" role="tab" data-tab="suno" aria-selected="false">수노 MIDI 불러오기 <small>수업용</small></button>
@@ -263,7 +272,6 @@
     </div>
     <div class="opt"><span class="lab">장르</span><div class="seg2" id="optGenre"></div></div>
     <div class="opt"><span class="lab">분위기</span><div class="seg2" id="optMood"></div></div>
-    <div class="opt"><span class="lab">악기</span><div class="seg2 multi" id="optInst"></div></div>
     <p class="lock">🔒 내 선율과 가사는 그대로 두고 반주 파트만 만듭니다 — 빠르기·길이·조성도 그대로.</p>
     <p class="hint">자동 편곡은 인터넷 AI 없이 정해진 규칙으로 반주를 만듭니다. 실제 수업에서는 수노로 만든 편곡을 옆 탭에서 불러와요.</p>
     <div class="row"><button class="btn" type="button" id="genArr">✨ 편곡 만들기</button></div>
@@ -444,6 +452,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=7"></script>
+<script type="module" src="js/app.js?v=8"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=7';
-import * as SC from './score.js?v=7';
-import * as SND from './sound.js?v=7';
+import * as C from './core.js?v=8';
+import * as SC from './score.js?v=8';
+import * as SND from './sound.js?v=8';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -41,7 +41,7 @@ export function createEditor(host, opts) {
     speedUI();
     if (SND.isPlaying() && E.follow) { // 듣는 중이면 지금 자리부터 새 빠르기로 다시
       const pos = SND.position(); const btn = host.querySelector('.ed-plays .playing') || host.querySelector('[data-e=playall]');
-      SND.stop(); opts.onPlay && opts.onPlay(Math.max(0, Math.floor(pos)), btn, E.speed); if (SND.isPlaying()) follow();
+      SND.stop(); opts.onPlay && opts.onPlay(Math.floor(pos), btn, E.speed); if (SND.isPlaying()) follow();
     }
   }
   const cursor = () => scoreEl.querySelector('.ed-cursor');
@@ -51,7 +51,7 @@ export function createEditor(host, opts) {
     const m = E.model;
     if (!m || !m.voices.length) { scoreEl.innerHTML = '<p class="empty">아직 악보가 없어요.</p>'; return; }
     const scroll = E.view === 'scroll';
-    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: scroll ? m.bars : (m.perLine || 4), voices: m.voices, showTitle: !!m.showTitle && !scroll });
+    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: scroll ? m.bars + (m.intro || 1) : (m.perLine || 4), voices: m.voices, showTitle: !!m.showTitle && !scroll, intro: m.intro || 0, sections: m.sections, header: m.header, ...(m.pickup != null ? { pickup: m.pickup } : {}) });
     E.marks = marks;
     const cur = cursor(); if (cur) cur.remove();
     scoreEl.classList.toggle('scrollview', scroll);
@@ -60,7 +60,29 @@ export function createEditor(host, opts) {
     E.tune = SC.renderAbc(scoreEl, abc, { click: onClick, staffwidth: w, fixed: scroll });
     const c = document.createElement('div'); c.className = 'ed-cursor'; c.hidden = true; scoreEl.appendChild(c);
     E.tl = null; E.els = null;
+    if (scroll) stickyHead();
     paintSel(); speedUI();
+  }
+  // 스크롤 보기: 피날레처럼 왼쪽에 보표 시작·음자리표·조표·악기 이름을 고정해 둔다
+  function stickyHead() {
+    const svg = scoreEl.querySelector('svg'); if (!svg) return;
+    const sr = svg.getBoundingClientRect(); if (!sr.width) return;
+    const ts = [...svg.querySelectorAll('.abcjs-time-signature')];
+    let edge = ts.length ? Math.min(...ts.map(e => e.getBoundingClientRect().left)) - sr.left - 3 : 0;
+    if (!(edge > 12)) { const n = svg.querySelector('.abcjs-note, .abcjs-rest'); edge = n ? n.getBoundingClientRect().left - sr.left - 8 : 0; }
+    if (edge < 12) return;
+    const vb = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : null;
+    const k = vb ? vb.width / sr.width : 1;
+    const c = svg.cloneNode(true);
+    c.removeAttribute('style'); c.removeAttribute('class');
+    c.setAttribute('viewBox', `${vb ? vb.x : 0} ${vb ? vb.y : 0} ${edge * k} ${vb ? vb.height : sr.height}`);
+    c.setAttribute('width', edge); c.setAttribute('height', sr.height); c.setAttribute('preserveAspectRatio', 'xMinYMin slice');
+    c.querySelectorAll('.ed-on,.ed-play').forEach(x => x.classList.remove('ed-on', 'ed-play'));
+    const h = document.createElement('div'); h.className = 'ed-head'; h.setAttribute('aria-hidden', 'true');
+    h.style.top = (sr.top - scoreEl.getBoundingClientRect().top + scoreEl.scrollTop) + 'px'; h.style.width = edge + 'px'; h.style.height = sr.height + 'px';
+    h.appendChild(c); scoreEl.appendChild(h);
+    const sync = () => { const x = scoreEl.scrollLeft; h.hidden = x < 2; h.style.transform = `translateX(${x}px)`; };
+    scoreEl.onscroll = sync; sync();
   }
   // 음표 SVG 요소 찾기: 한 번 훑어 표를 만든다(음표마다 악보 전체를 뒤지지 않게)
   function elsMap() {
@@ -73,7 +95,7 @@ export function createEditor(host, opts) {
     });
     return (E.els = map);
   }
-  const elsOf = m => elsMap().get(m.vi + ':' + m.bar + ':' + m.k) || [];
+  const elsOf = m => elsMap().get(m.vi + ':' + (m.mm ?? m.bar) + ':' + m.k) || [];
   const voiceOf = vi => E.model.voices[vi];
   function markAt(ch) {
     let lo = 0, hi = E.marks.length - 1, best = null;
@@ -94,10 +116,11 @@ export function createEditor(host, opts) {
     const s = E.sel, what = host.querySelector('.ed-what');
     host.classList.toggle('has-sel', !!s);
     if (!s) { what.textContent = '음표를 눌러 고르세요'; return; }
-    const v = voiceOf(s.vi), bar = Math.floor((s.ref ? s.ref.s : s.s) / C.BAR) + 1;
+    const v = voiceOf(s.vi), b0 = Math.floor((s.ref ? s.ref.s : s.s) / C.BAR) + 1, intro = E.model.intro || 0;
+    const bar = b0 >= 1 ? b0 : intro ? `전주 ${b0 + intro}` : '못갖춘';
     if (!s.ref) { what.textContent = `${v.name} · ${bar}마디 · 쉼표 — ▲▼나 건반으로 음을 넣어요`; return; }
     const n = s.ref;
-    const nm = v.drum ? (n.kit || []).map(k => ({ kick: '큰북', snare: '작은북', hat: '하이햇', crash: '심벌' }[k])).join('+') : (n.chord && n.chord.length > 1 ? '화음 ' : '') + `${C.solName(n.p, E.model.key)}(${C.sciName(n.p, E.model.key)})`;
+    const nm = v.drum ? (n.kit || []).map(k => ({ kick: '큰북', snare: '작은북', hat: '하이햇', crash: '심벌', ride: '라이드', tom: '탐' }[k])).join('+') : (n.chord && n.chord.length > 1 ? '화음 ' : '') + `${C.solName(n.p, E.model.key)}(${C.sciName(n.p, E.model.key)})`;
     what.textContent = `${v.name} · ${bar}마디 · ${nm} · ${(LENS.find(l => l[0] === n.d) || [0, n.d / 4 + '박'])[1]}`;
     host.querySelectorAll('[data-len]').forEach(b => b.classList.toggle('on', +b.dataset.len === n.d));
   }
@@ -122,7 +145,7 @@ export function createEditor(host, opts) {
     render(); E.tl = null;
   }
   function sorted(v) { return [...v.notes].sort((a, b) => a.s - b.s); }
-  function room(v, s, self) { const nx = sorted(v).find(n => n !== self && n.s > s); return (nx ? nx.s : E.model.bars * C.BAR) - s; }
+  function room(v, s, self) { const nx = sorted(v).find(n => n !== self && n.s > s); return (nx ? nx.s : E.model.end ?? E.model.bars * C.BAR) - s; }
   function prevPitch(v, s) { const pv = sorted(v).filter(n => n.s < s).pop(); return pv ? pv.p : v.clef === 'bass' ? 43 : v.clef === 'perc' ? 38 : 67; }
   function insertAt(p) {
     const s = E.sel, v = voiceOf(s.vi);
@@ -190,7 +213,7 @@ export function createEditor(host, opts) {
     if (b.dataset.len) return setLen(+b.dataset.len);
     const a = b.dataset.e;
     if (a === 'undo') return undo();
-    if (a === 'playall') { opts.onPlay && opts.onPlay(0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
+    if (a === 'playall') { opts.onPlay && opts.onPlay(E.model.start ?? 0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
     if (!E.sel && a !== 'play') return opts.toast && opts.toast('먼저 악보에서 음표를 눌러 골라요');
     if (a === 'up') pitch(1); if (a === 'down') pitch(-1);
     if (a === 'oup') pitch(12); if (a === 'odown') pitch(-12);
@@ -252,7 +275,7 @@ export function createEditor(host, opts) {
     const a = pts[i], b = pts[i + 1];
     const L = lines.get(a.line) || { top: 0, bot: scoreEl.scrollHeight, right: a.x + 40 };
     const xEnd = b && b.line === a.line ? b.x : L.right;
-    const sEnd = b ? b.s : E.model.bars * C.BAR;
+    const sEnd = b ? b.s : E.model.end ?? E.model.bars * C.BAR;
     const t = Math.max(0, Math.min(1, (pos - a.s) / Math.max(1, sEnd - a.s)));
     const x = a.x + (xEnd - a.x) * t;
     const c = cursor(); c.hidden = false;
