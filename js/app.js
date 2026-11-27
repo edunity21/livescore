@@ -614,8 +614,8 @@ async function humStart() {
 function humTick() {
   const h = U.hum; if (!h) return;
   const c = SND.audio(), now = c.currentTime, beat = 60 / h.tempo, tu = beat / 4;
-  const { rms, midi } = h.rec.now();
-  $('#humLv').style.width = Math.min(100, Math.round(rms * 500)) + '%';
+  const { rms, level, midi } = h.rec.now();
+  $('#humLv').style.width = Math.round((level ?? Math.min(1, rms * 5)) * 100) + '%';
   $('#humNow').textContent = midi == null ? '—' : `${C.solName(Math.round(midi), S.key)}(${C.sciName(Math.round(midi), S.key)})`;
   if (now < h.t0) $('#humState').textContent = '예비박 ' + [1, 2, 3, 4].slice(0, Math.min(4, Math.floor((now - h.start) / beat) + 1)).join('·');
   else {

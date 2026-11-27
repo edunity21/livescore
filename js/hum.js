@@ -20,7 +20,7 @@ let workletReady = null;
 
 export async function openRecorder(ctx) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nomic');
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } /* 작게 흥얼거려도 들리도록 자동 음량 */ });
   const src = ctx.createMediaStreamSource(stream);
   const an = ctx.createAnalyser(); an.fftSize = 2048; src.connect(an);
   const mute = ctx.createGain(); mute.gain.value = 0; mute.connect(ctx.destination);
@@ -42,10 +42,18 @@ export async function openRecorder(ctx) {
     src.connect(proc); proc.connect(mute);
   }
   const tbuf = new Float32Array(an.fftSize);
+  let floor = null;
   return {
     sampleRate: ctx.sampleRate,
     // 지금 소리(실시간 표시용): { rms, midi }
-    now() { an.getFloatTimeDomainData(tbuf); let s = 0; for (let i = 0; i < tbuf.length; i++) s += tbuf[i] * tbuf[i]; const rms = Math.sqrt(s / tbuf.length); const r = rms > .008 ? yin(tbuf, ctx.sampleRate, 0, tbuf.length >> 1) : null; return { rms, midi: r && r.ap < .25 ? 69 + 12 * Math.log2(r.f / 440) : null }; },
+    now() {
+      an.getFloatTimeDomainData(tbuf); let s = 0; for (let i = 0; i < tbuf.length; i++) s += tbuf[i] * tbuf[i];
+      const rms = Math.sqrt(s / tbuf.length);
+      floor = floor == null ? rms : Math.min(rms, floor * 1.002 + 1e-6); // 조용할 때 소리(바닥 잡음)를 천천히 따라간다
+      const r = rms > Math.max(.0012, floor * 2.5) ? yin(tbuf, ctx.sampleRate, 0, tbuf.length >> 1) : null;
+      // level: 0~1(-60dB~-10dB) — 작은 흥얼거림도 막대가 보이게
+      return { rms, level: Math.max(0, Math.min(1, (20 * Math.log10(rms + 1e-9) + 60) / 50)), midi: r && r.ap < .25 ? 69 + 12 * Math.log2(r.f / 440) : null };
+    },
     // 녹음 끝: 오디오 시각 t0(초)부터의 소리를 하나로 잇는다
     async finish(t0, t1) {
       stopped = true;
@@ -89,7 +97,7 @@ const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? 
 
 // 녹음(pcm, 표본율 sr) → 음 높이 흐름과 음표들 [{p, v, t, d}] (t·d: 초, 녹음 시작 기준)
 export async function transcribe(pcm, sr, onProgress) {
-  const x = await down16(pcm, sr), SR = 16000, W = 512, HOP = 160;
+  const x = normalize(await down16(pcm, sr)), SR = 16000, W = 512, HOP = 160; // 작게 부른 소리도 같은 기준으로
   const n = Math.max(0, Math.floor((x.length - W * 2) / HOP));
   const fr = [];
   for (let k = 0; k < n; k++) {
@@ -98,8 +106,11 @@ export async function transcribe(pcm, sr, onProgress) {
     fr.push({ t: (i0 + W / 2) / SR, rms: Math.sqrt(s / W), midi: null, ap: 1 });
     if (k % 150 === 0) { onProgress && onProgress(k / n * .5); await new Promise(r => setTimeout(r, 0)); }
   }
-  const loud = median(fr.map(f => f.rms).filter(v => v > .002).sort((a, b) => a - b).slice(-Math.max(1, Math.floor(fr.length * .3)))) || 0;
-  const gate = Math.max(.004, loud * .12);
+  // 소리 문턱: 절대값이 아니라 이 녹음의 조용한 곳(바닥 잡음)과 큰 곳을 견주어 정한다
+  const sorted = fr.map(f => f.rms).sort((a, b) => a - b);
+  const noise = sorted[Math.floor(sorted.length * .05)] || 0;
+  const loud = median(sorted.slice(-Math.max(1, Math.floor(fr.length * .3)))) || 0;
+  const gate = Math.max(Math.min(noise * 2.5, loud * .35), loud * .08, 1e-4); // 쉼 없이 불러도 문턱이 노랫소리를 넘지 않게
   for (let k = 0; k < fr.length; k++) {
     const f = fr[k];
     if (f.rms >= gate) { const r = yin(x, SR, k * HOP, W); f.ap = r.ap; if (r.ap < .3) f.midi = 69 + 12 * Math.log2(r.f / 440); }
