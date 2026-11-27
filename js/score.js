@@ -1,15 +1,17 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow } from './core.js?v=8';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=9';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
-const KEYSIG = { C: {}, G: { F: 1 }, D: { F: 1, C: 1 }, A: { F: 1, C: 1, G: 1 }, E: { F: 1, C: 1, G: 1, D: 1 }, F: { B: -1 }, Bb: { B: -1, E: -1 }, Eb: { B: -1, E: -1, A: -1 } };
+const SH = 'FCGDAEB', FL = 'BEADGCF';
+const KEYSIG = Object.fromEntries(Object.entries(KEYS).map(([id, k]) => [id, Object.fromEntries([...(k.fifths >= 0 ? SH : FL).slice(0, Math.abs(k.fifths))].map(L => [L, k.fifths >= 0 ? 1 : -1]))]));
 export function spell(p, key) {
-  const [L, alt] = ((KEYS[key] || KEYS.C).flat ? FLAT_N : SHARP_N)[pc(p)];
+  const k = KEYS[key] || KEYS.C;
+  const [L, alt] = (k.fix && k.fix[pc(p)]) || (k.flat ? FLAT_N : SHARP_N)[pc(p)];
   return { L, alt, oct: Math.floor((p - alt) / 12) - 1 };
 }
-const DRUM_POS = { kick: 'F', snare: 'c', hat: 'g', crash: 'a', ride: 'f', tom: 'e' };
-const DRUM_X_HEAD = { hat: 1, crash: 1, ride: 1 };
+const DRUM_POS = { kick: 'F', snare: 'c', hat: 'g', crash: 'a', ride: 'f', tom: 'e', tamb: 'e' };
+const DRUM_X_HEAD = { hat: 1, crash: 1, ride: 1, tamb: 1 };
 
 function abcPitch(p, key, bar) {
   const { L, alt, oct } = spell(p, key);
@@ -41,7 +43,7 @@ export function buildAbc(o) { return buildAbcMap(o).abc; }
 // 편집기용: 악보 글과 함께, 글 속 각 음표·쉼표 위치(marks)를 돌려준다
 // layout: intro(전주 마디 수 — 0이면 못갖춘마디는 짧은 첫 마디), sections [{bar, name}](리허설 표시·겹세로줄),
 // header {subtitle, credit, style, info}(악보 머리), 성부마다 dyn [{s, m}](셈여림) · tech [{s, text}](주법 글)
-export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars, perLine = 4, voices, showTitle = true, pickup = METER.pickup, cutEnd, barNumbers = true, intro = 0, sections = null, header = null }) {
+export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars, perLine = 4, voices, showTitle = true, pickup = METER.pickup, cutEnd, barNumbers = true, intro = 0, sections = null, header = null, multirest = false }) {
   if (intro) pickup = 0; // 전주가 있으면 여린내기 음은 전주 마지막 마디 안에 들어간다
   if (cutEnd == null) { // 못갖춘마디로 시작하면 마지막 마디를 그만큼 짧게(그 자리에 음이 없을 때만)
     const lastEnd = Math.max(0, ...voices.flatMap(v => v.notes.map(n => n.s + n.d)));
@@ -77,14 +79,33 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
     (v.dyn || []).forEach(d => at(d.s, 'dyn', d.m, true));
     return { v, pieces, pre };
   });
-  const lineStarts = []; for (let b0 = intro ? first : 0; b0 < bars; b0 += perLine) lineStarts.push(b0);
-  lineStarts.forEach(b0 => {
-    const b1 = Math.min(bars, b0 + perLine);
+  // 줄마다 마디: 보통은 perLine 마디씩, 파트보(multirest)는 이어진 빈 마디를 여러 마디 쉼표(Z) 한 칸으로 센다
+  const lineBars = [];
+  if (multirest) {
+    const empty = b => vp.every(({ pieces, pre }) => !pieces.some(q => q.s >= b * BAR && q.s < (b + 1) * BAR && (q.p != null || pre.has(q))));
+    const segs = [];
+    for (let b = intro ? first : pickup ? -1 : 0; b < bars;) {
+      if (!(pickup && b === -1) && empty(b)) { let e = b + 1; while (e < bars && empty(e) && !secAt.has(e)) e++; segs.push({ b, z: e - b }); b = e; }
+      else segs.push({ b: b++, z: 1 });
+    }
+    let cur = [], n = 0;
+    segs.forEach(sg => { cur.push(sg); if (!(pickup && sg.b === -1)) n++; if (n >= perLine) { lineBars.push(cur); cur = []; n = 0; } });
+    if (cur.length) lineBars.push(cur);
+  } else {
+    for (let b0 = intro ? first : 0; b0 < bars; b0 += perLine) { const b1 = Math.min(bars, b0 + perLine), sg = []; for (let b = b0 === 0 && pickup ? -1 : b0; b < b1; b++) sg.push({ b, z: 1 }); lineBars.push(sg); }
+  }
+  lineBars.forEach((segs, li) => {
     vp.forEach(({ v, pieces, pre }, vi) => {
-      let mus = `[V:${v.id}] `;
+      let mus = `[V:${v.id}] ` + (li === 0 && v.drum ? '[K:none clef=perc] ' : ''); // 타악기 보표에는 조표를 적지 않는다
       const lyr = [], local = [];
       const dsp = p => p + (v.disp || 0); // 옥타브 위로 적는 악기(기타·베이스)
-      for (let b = b0 === 0 && pickup ? -1 : b0; b < b1; b++) {
+      for (const { b, z } of segs) {
+        if (z > 1) { // 여러 마디 쉼표
+          const last = b + z - 1;
+          if (vi === 0 && secAt.has(b)) mus += `[P:${secAt.get(b)}] `;
+          mus += `Z${z} ${last === bars - 1 ? '|]' : secAt.has(last + 1) ? '||' : '|'} `;
+          continue;
+        }
         const bar = new Map();
         if (vi === 0 && secAt.has(b)) mus += `[P:${secAt.get(b)}] `;
         const endBar = b === bars - 1 ? '|]' : secAt.has(b + 1) && b >= first && !(pickup && b === -1) ? '||' : '|';
@@ -114,14 +135,14 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
           mus += tok;
           if (v.lyrics) {
             if (q.tiePrev) lyr.push('_');
-            else { const m = v.lyrics.map.get(q.ref.id); lyr.push(m ? (m.kind === 'ext' ? '_' : m.text ? m.text.replace(/[-_*~\\|]/g, '') : '*') : '*'); }
+            else { const m = v.lyrics.map.get(q.ref.id); lyr.push(m ? (m.kind === 'ext' ? '_' : m.text ? m.text.replace(/[-_*~\\|]/g, '') + (m.hy ? '-' : '') : '*') : '*'); }
           }
         });
         mus += ' ' + endBar + ' ';
       }
       local.forEach(m => marks.push({ at: pos + m.off, vi: m.vi, bar: m.bar, mm: m.mm, k: m.k, q: m.q }));
       push(mus.trim());
-      if (v.lyrics && lyr.length) push('w: ' + lyr.join(' '));
+      if (v.lyrics && lyr.length) push('w: ' + lyr.map((t, i) => t + (/-$/.test(t) || i === lyr.length - 1 ? '' : ' ')).join('')); // 'hap-py'처럼 붙임표는 띄우지 않는다
     });
   });
   marks.sort((x, y) => x.at - y.at);
@@ -151,7 +172,7 @@ export function melodyVoice(melody, lyricsLines, chords, name = '노래', id = '
 export function renderAbc(el, abc, opts = {}) {
   if (!window.ABCJS) { el.textContent = '악보 그리기 도구를 불러오지 못했습니다.'; return null; }
   const r = window.ABCJS.renderAbc(el, abc, {
-    add_classes: true, responsive: opts.fixed ? undefined : 'resize', paddingtop: 6, paddingbottom: 6, paddingleft: 4, paddingright: 4,
+    add_classes: true, responsive: opts.fixed ? undefined : 'resize', oneSvgPerLine: !!opts.print, paddingtop: 6, paddingbottom: opts.print ? 14 : 6, paddingleft: 4, paddingright: 4,
     staffwidth: opts.staffwidth || 740, scale: opts.scale || 1, clickListener: opts.click, foregroundColor: '#1a1c1f', selectionColor: '#1F4D3A', dragging: false,
     format: { vocalfont: 'Pretendard 13', gchordfont: 'Pretendard 12' },
   });
@@ -161,7 +182,7 @@ export function renderAbc(el, abc, opts = {}) {
 // ── MusicXML ──
 const TYPE = { 16: ['whole', 0], 12: ['half', 1], 8: ['half', 0], 6: ['quarter', 1], 4: ['quarter', 0], 3: ['eighth', 1], 2: ['eighth', 0], 1: ['16th', 0] };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const DRUM_X = { kick: ['F', 4, 36], snare: ['C', 5, 38], tom: ['E', 5, 45], hat: ['G', 5, 42], ride: ['F', 5, 51], crash: ['A', 5, 49] };
+const DRUM_X = { kick: ['F', 4, 36], snare: ['C', 5, 38], tom: ['E', 5, 45], hat: ['G', 5, 42], ride: ['F', 5, 51], crash: ['A', 5, 49], tamb: ['E', 5, 54] };
 
 // parts: [{name, clef, notes, drum?, program, lyrics?:flow, chords?:[{s,r,q,name}] }]
 export function buildMusicXML({ title, sub, tempo, key, bars, parts, pickup = METER.pickup, intro = 0, sections = null, header = null }) {
@@ -199,6 +220,9 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
     x += `  <part id="${id}">\n`;
     const pieces = toPieces(p.drum ? p.notes.map(n => ({ ...n, chord: undefined })) : p.notes, total, start);
     const disp = p.disp || 0;
+    // 이조 악기(클라리넷·트럼펫·색소폰): 기보음과 그 조표로 적고 <transpose>로 실음을 알려 준다 — 뮤즈스코어 '실음 보기'도 맞게
+    const tr = p.drum ? 0 : p.trans || 0, pkey = tr ? shiftKey(key, tr) : key, pk = KEYS[pkey] || k;
+    const DIA = { 2: 1, 9: 5, 14: 8, 21: 12, 7: 4, '-3': -2 };
     const b0 = first;
     const dir = new Map(); // 셈여림·주법 글: 그 자리 첫 음(주법은 첫 조각) 앞에
     const put = (s, xml, noteOnly) => { const q = pieces.find(z => z.s >= s && z.s < s + BAR * 2 && (!noteOnly || z.p != null)); if (q) dir.set(q, (dir.get(q) || '') + xml); };
@@ -210,8 +234,8 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
       if (i === 0 && secAt.has(b)) x += `      <direction placement="above"><direction-type><rehearsal enclosure="rectangle">${esc(secAt.get(b))}</rehearsal></direction-type></direction>\n`;
       if (b === b0) {
         const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';
-        const tr = disp ? `<transpose><diatonic>${-7 * disp / 12}</diatonic><chromatic>${-disp}</chromatic></transpose>` : '';
-        x += `      <attributes><divisions>4</divisions><key><fifths>${k.fifths}</fifths><mode>major</mode></key><time><beats>4</beats><beat-type>4</beat-type></time><clef>${clef}</clef>${tr}</attributes>\n`;
+        const tx = disp || tr ? `<transpose><diatonic>${-(7 * disp / 12 + (DIA[tr] ?? Math.round(tr * 7 / 12)))}</diatonic><chromatic>${-(disp + tr)}</chromatic></transpose>` : '';
+        x += `      <attributes><divisions>4</divisions><key><fifths>${pk.fifths}</fifths><mode>major</mode></key><time><beats>4</beats><beat-type>4</beat-type></time><clef>${clef}</clef>${tx}</attributes>\n`;
         if (i === 0) x += `      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>\n`;
       }
       const inBar = pieces.filter(q => q.s >= b * BAR && q.s < (b + 1) * BAR);
@@ -220,7 +244,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         if (p.chords) {
           const c = p.chords.find(c => c.s === q.s);
           if (c) {
-            const sp = spell(60 + pc(k.tonic + c.r), key);
+            const nm = chordName({ r: c.r, q: c.q }, pkey), sp = { L: nm[0], alt: nm[1] === '♯' ? 1 : nm[1] === '♭' ? -1 : 0 }; // 음 이름 자리대로(♭VII = B♭)
             x += `      <harmony><root><root-step>${sp.L}</root-step>${sp.alt ? `<root-alter>${sp.alt}</root-alter>` : ''}</root><kind>${c.q === 'm' ? 'minor' : 'major'}</kind></harmony>\n`;
           }
         }
@@ -247,7 +271,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         }
         const ps = q.ref && q.ref.chord && q.ref.chord.length > 1 ? [...q.ref.chord].sort((a, b) => a - b) : [q.p];
         ps.forEach((pp, j) => {
-          const sp = spell(pp + disp, key);
+          const sp = spell(pp + disp + tr, pkey);
           let ly = '';
           if (j === 0 && p.lyrics && !q.tiePrev) {
             const m = p.lyrics.map.get(q.ref.id);

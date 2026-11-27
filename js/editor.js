@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=8';
-import * as SC from './score.js?v=8';
-import * as SND from './sound.js?v=8';
+import * as C from './core.js?v=9';
+import * as SC from './score.js?v=9';
+import * as SND from './sound.js?v=9';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -21,7 +21,9 @@ export function createEditor(host, opts) {
         <div class="ed-grp"><button type="button" data-e="del" title="지우기 (Delete)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button></div>
         <div class="ed-grp ed-plays"><button type="button" data-e="playall" class="pl" title="처음부터 듣기 (Space)">▶ 처음부터</button><button type="button" data-e="play" class="pl2" title="고른 마디부터 듣기">▶ 여기부터</button></div>
         <div class="ed-grp ed-speed" role="group" aria-label="재생 빠르기"><button type="button" data-sp="-1" title="느리게">−</button><b class="ed-spv" title="재생 빠르기(악보의 빠르기는 그대로)">100%</b><button type="button" data-sp="1" title="빠르게">＋</button></div>
+        <div class="ed-grp ed-lygrp" hidden><button type="button" data-e="lyric" class="ed-lybtn" title="가사 입력 (L) — 음표를 누르고 글자를 친 뒤 띄어쓰기로 다음 음표">가사 입력</button></div>
         <div class="ed-grp ed-view" role="group" aria-label="악보 보기"><button type="button" data-view="page">페이지 보기</button><button type="button" data-view="scroll">스크롤 보기</button></div>
+        <div class="ed-grp ed-prgrp"><button type="button" data-e="print" class="ed-prbtn" title="총보·파트보 인쇄 (Ctrl+P)">인쇄</button></div>
       </div>
     </div>
     <div class="score ed-score"><div class="ed-cursor" hidden></div></div>`;
@@ -61,15 +63,22 @@ export function createEditor(host, opts) {
     const c = document.createElement('div'); c.className = 'ed-cursor'; c.hidden = true; scoreEl.appendChild(c);
     E.tl = null; E.els = null;
     if (scroll) stickyHead();
+    host.querySelector('.ed-lygrp').hidden = !opts.lyric || lyVoice() < 0;
+    host.querySelector('.ed-prgrp').hidden = scroll; // 인쇄는 페이지 보기에서
     paintSel(); speedUI();
+    if (LY.on) requestAnimationFrame(lyPlace);
   }
   // 스크롤 보기: 피날레처럼 왼쪽에 보표 시작·음자리표·조표·악기 이름을 고정해 둔다
   function stickyHead() {
     const svg = scoreEl.querySelector('svg'); if (!svg) return;
     const sr = svg.getBoundingClientRect(); if (!sr.width) return;
+    // 박자표까지 고정(박자표 오른쪽 끝 + 여백, 첫 음표는 가리지 않게)
     const ts = [...svg.querySelectorAll('.abcjs-time-signature')];
-    let edge = ts.length ? Math.min(...ts.map(e => e.getBoundingClientRect().left)) - sr.left - 3 : 0;
-    if (!(edge > 12)) { const n = svg.querySelector('.abcjs-note, .abcjs-rest'); edge = n ? n.getBoundingClientRect().left - sr.left - 8 : 0; }
+    const fn = [...svg.querySelectorAll('.abcjs-note, .abcjs-rest')].map(e => e.getBoundingClientRect().left).filter(x => x > sr.left);
+    const firstNote = fn.length ? Math.min(...fn) - sr.left : Infinity;
+    let edge = ts.length ? Math.max(...ts.map(e => e.getBoundingClientRect().right)) - sr.left + 7 : 0;
+    if (!(edge > 12)) edge = Number.isFinite(firstNote) ? firstNote - 8 : 0;
+    if (Number.isFinite(firstNote)) edge = Math.min(edge, firstNote - 3);
     if (edge < 12) return;
     const vb = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : null;
     const k = vb ? vb.width / sr.width : 1;
@@ -128,6 +137,8 @@ export function createEditor(host, opts) {
     active = api;
     const m = markAt(Math.max(el.startChar, (el.endChar || el.startChar + 1) - 1)); if (!m) return;
     const v = voiceOf(m.vi);
+    if (LY.on && m.vi === lyVoice() && m.q.p != null) { lySave(); E.sel = { vi: m.vi, ref: m.q.ref }; paintSel(); lyOpen(); return; } // 가사 입력 중: 누른 음표로
+    if (LY.on) lyClose();
     if (!v.editable) { E.sel = null; paintSel(); opts.toast && opts.toast(v.lockMsg || '이 파트는 여기서 고칠 수 없어요'); return; }
     E.sel = m.q.p == null ? { vi: m.vi, s: m.q.s, d: m.q.d } : { vi: m.vi, ref: m.q.ref };
     paintSel(); preview();
@@ -136,7 +147,7 @@ export function createEditor(host, opts) {
     const s = E.sel; if (!s || !s.ref || voiceOf(s.vi).drum) return;
     const c = SND.audio(); (s.ref.chord || [s.ref.p]).forEach(p => SND.voice(c, SND.master, voiceOf(s.vi).inst === 'melody' ? 'voice' : 'keys', p, c.currentTime + .01, .35, .7));
   }
-  const snap = () => JSON.stringify(E.model.voices.map(v => v.editable ? v.notes : null));
+  const snap = () => JSON.stringify({ v: E.model.voices.map(v => v.editable ? v.notes : null), x: opts.state ? opts.state.get() : null });
   function commit(fn) {
     const before = snap();
     if (fn() === false) return;
@@ -182,8 +193,10 @@ export function createEditor(host, opts) {
   }
   function undo() {
     const last = E.hist.pop(); if (!last) return opts.toast && opts.toast('되돌릴 것이 없어요');
-    const arr = JSON.parse(last);
+    const o = JSON.parse(last), arr = Array.isArray(o) ? o : o.v;
+    if (o.x != null && opts.state) opts.state.set(o.x);
     opts.model().voices.forEach((v, i) => { if (arr[i]) v.notes.splice(0, v.notes.length, ...arr[i]); });
+    if (LY.on) lyClose();
     E.sel = null; opts.onChange && opts.onChange(); render();
   }
   function move(dir) {
@@ -213,6 +226,8 @@ export function createEditor(host, opts) {
     if (b.dataset.len) return setLen(+b.dataset.len);
     const a = b.dataset.e;
     if (a === 'undo') return undo();
+    if (a === 'lyric') return LY.on ? lyClose() : lyStart();
+    if (a === 'print') return printMenu(b);
     if (a === 'playall') { opts.onPlay && opts.onPlay(E.model.start ?? 0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
     if (!E.sel && a !== 'play') return opts.toast && opts.toast('먼저 악보에서 음표를 눌러 골라요');
     if (a === 'up') pitch(1); if (a === 'down') pitch(-1);
@@ -225,6 +240,8 @@ export function createEditor(host, opts) {
     if (active !== api || !host.offsetParent || e.target.closest('input,textarea,select')) return false;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return true; }
     if (e.key === ' ') { e.preventDefault(); host.querySelector(E.sel ? '[data-e=play]' : '[data-e=playall]').click(); return true; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && E.view === 'page') { e.preventDefault(); printMenu(host.querySelector('.ed-prbtn')); return true; }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'KeyL' && opts.lyric && lyVoice() >= 0) { e.preventDefault(); lyStart(); return true; }
     if (!E.sel) return false;
     if (e.key === 'ArrowUp') { e.preventDefault(); pitch(e.shiftKey ? 12 : 1); return true; }
     if (e.key === 'ArrowDown') { e.preventDefault(); pitch(e.shiftKey ? -12 : -1); return true; }
@@ -318,6 +335,183 @@ export function createEditor(host, opts) {
     E.view = v; try { localStorage.setItem('livescore-view', v); } catch (x) { }
     const was = E.follow; render(); if (was) { E.tl = null; }
   }
+  // ── 타이프 인 스코어(가사 입력) — 피날레처럼 음표 아래에 바로 쳐 넣는다 ──
+  // 띄어쓰기·Enter·Tab → 다음 음표, Shift+Tab·← → 앞 음표, - 붙임표(영어 음절), _ 앞 글자 늘이기, 빈 칸에서 ⌫ 앞 음표, Esc 끝
+  const LY = { on: false, box: null, inp: null, orig: '' };
+  function lyVoice() { const m = E.model; return m ? m.voices.findIndex(v => v.lyricsTarget && v.editable) : -1; }
+  function lyNotes(vi) { const seen = new Set(), out = []; E.marks.forEach(m => { if (m.vi === vi && m.q.p != null && !m.q.tiePrev && m.q.ref && !seen.has(m.q.ref)) { seen.add(m.q.ref); out.push(m.q.ref); } }); return out; }
+  function lyStart() {
+    const vi = lyVoice(); if (vi < 0 || !opts.lyric) return;
+    if (!E.sel || E.sel.vi !== vi || !E.sel.ref) {
+      const ns = lyNotes(vi), firstEmpty = ns.find(n => !opts.lyric.get(voiceOf(vi), n));
+      const n = firstEmpty || ns[0]; if (!n) return opts.toast && opts.toast('노래 음표가 아직 없어요');
+      E.sel = { vi, ref: n };
+    }
+    LY.on = true; host.classList.add('ly-mode'); host.querySelector('.ed-lybtn').classList.add('on');
+    paintSel(); lyOpen();
+    if (!LY.told) { LY.told = true; opts.toast && opts.toast('글자를 치고 띄어쓰기로 다음 음표 · Esc로 끝'); }
+  }
+  function lyClose() {
+    if (LY.box) { lySave(); LY.box.remove(); LY.box = LY.inp = null; }
+    LY.on = false; host.classList.remove('ly-mode'); const b = host.querySelector('.ed-lybtn'); if (b) b.classList.remove('on');
+  }
+  function lyOpen() {
+    if (!LY.box) {
+      LY.box = document.createElement('div'); LY.box.className = 'ed-lyin';
+      LY.box.innerHTML = '<input type="text" autocomplete="off" spellcheck="false" aria-label="가사 한 글자"><small>띄어쓰기 다음 · Esc 끝</small>';
+      host.appendChild(LY.box); LY.inp = LY.box.querySelector('input');
+      LY.inp.addEventListener('keydown', lyKey);
+      LY.inp.addEventListener('input', lyInput);
+      LY.inp.addEventListener('blur', () => setTimeout(() => { if (LY.on && !LY.ptr && document.activeElement !== LY.inp) lySave(); }, 0));
+    }
+    const v = voiceOf(E.sel.vi), cur = opts.lyric.get(v, E.sel.ref) || '';
+    LY.orig = cur; LY.inp.value = cur;
+    lyPlace(); LY.inp.focus({ preventScroll: true }); LY.inp.select();
+  }
+  function lyPlace() {
+    if (!LY.box || !E.sel || !E.sel.ref) return;
+    const m = selMarks()[0], el = m && elsOf(m)[0]; if (!el) return;
+    const hr = host.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const lc = [...el.classList].find(c => /^abcjs-l\d+$/.test(c));
+    let bottom = r.bottom;
+    if (lc) { // 그 음표가 놓인 보표의 아래 줄 밑(가사 자리)
+      const cy = (r.top + r.bottom) / 2;
+      let best = null; scoreEl.querySelectorAll('.abcjs-staff.' + lc).forEach(st => { const b = st.getBoundingClientRect(), d = cy < b.top ? b.top - cy : cy > b.bottom ? cy - b.bottom : 0; if (!best || d < best.d) best = { d, b }; });
+      const staffB = best ? best.b.bottom : r.bottom;
+      if (best) bottom = Math.max(staffB, r.bottom - 4);
+      // 이미 가사 줄이 있으면 그 높이에 맞춘다
+      const ly = [...scoreEl.querySelectorAll('.abcjs-lyric')].map(e => e.getBoundingClientRect().top).filter(t => t > staffB - 2 && t < staffB + 70);
+      if (ly.length) bottom = Math.min(...ly) - 9;
+    }
+    const x = (r.left + r.right) / 2 - hr.left, y = bottom - hr.top + 6;
+    LY.box.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    // 화면 밖이면 보이게
+    if (E.view === 'scroll') { const sr = scoreEl.getBoundingClientRect(); if (r.left < sr.left + 60 || r.right > sr.right - 60) scoreEl.scrollLeft += r.left - sr.left - sr.width * .35; requestAnimationFrame(() => { const r2 = el.getBoundingClientRect(); LY.box.style.transform = `translate(${Math.round((r2.left + r2.right) / 2 - host.getBoundingClientRect().left)}px, ${Math.round(y)}px)`; }); }
+    else { const vb = LY.box.getBoundingClientRect(), top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 120) + (host.querySelector('.ed-bar').offsetHeight || 0) + 30; if (r.top < top || vb.bottom > window.innerHeight - 100) window.scrollBy({ top: r.top - top - 40, behavior: 'smooth' }); }
+  }
+  function lySave(text) {
+    if (!LY.inp || !E.sel || !E.sel.ref) return;
+    const t = text != null ? text : LY.inp.value.trim();
+    const v = voiceOf(E.sel.vi), n = E.sel.ref;
+    if (t === (opts.lyric.get(v, n) || '')) return;
+    commit(() => { const r = opts.lyric.set(v, n, t); if (r && r.long) opts.toast && opts.toast('한 음표에는 두 글자까지 붙여요'); });
+    LY.orig = t;
+  }
+  function lyMove(dir) {
+    const vi = E.sel.vi, ns = lyNotes(vi), i = ns.indexOf(E.sel.ref);
+    const nx = ns[i + dir];
+    if (!nx) { opts.toast && opts.toast(dir > 0 ? '마지막 음표예요' : '첫 음표예요'); LY.inp.value = opts.lyric.get(voiceOf(vi), E.sel.ref) || ''; LY.inp.select(); return; }
+    E.sel = { vi, ref: nx }; paintSel(); lyOpen();
+  }
+  function lyKey(e) {
+    if (e.isComposing || e.keyCode === 229) return; // 한글 조합 중에는 입력기가 먼저
+    const val = LY.inp.value;
+    const k = e.key;
+    if (k === ' ' || k === 'Enter' || (k === 'Tab' && !e.shiftKey)) { e.preventDefault(); lySave(); lyMove(1); return; }
+    if (k === 'Tab' && e.shiftKey) { e.preventDefault(); lySave(); lyMove(-1); return; }
+    if (k === '-') { e.preventDefault(); if (val.trim()) { lySave(val.trim() + (opts.lyric.hyphen ? '-' : '')); lyMove(1); } return; }
+    if (k === '_') { e.preventDefault(); if (val.trim()) lySave(); else lySave('_'); lyMove(1); return; }
+    if (k === 'Escape') { e.preventDefault(); lyClose(); paintSel(); return; }
+    if (k === 'Backspace' && !val) { e.preventDefault(); const v = voiceOf(E.sel.vi); if (opts.lyric.get(v, E.sel.ref)) lySave(''); else lyMove(-1); return; }
+    if (k === 'ArrowLeft' && LY.inp.selectionStart === 0 && LY.inp.selectionEnd === 0) { e.preventDefault(); lySave(); lyMove(-1); return; }
+    if (k === 'ArrowRight' && LY.inp.selectionStart === val.length) { e.preventDefault(); lySave(); lyMove(1); return; }
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); lyClose(); undo(); return; }
+  }
+  function lyInput(e) { // 입력기가 조합을 끝내며 넣은 띄어쓰기·붙임표
+    if (e.isComposing) return;
+    const val = LY.inp.value;
+    if (/\s$/.test(val)) { const t = val.trim(); LY.inp.value = t; lySave(t); lyMove(1); }
+    else if (/^.+-$/.test(val)) { const t = val.slice(0, -1).trim(); lySave(t + (opts.lyric.hyphen ? '-' : '')); lyMove(1); }
+  }
+  document.addEventListener('pointerdown', e => { if (LY.on && !host.contains(e.target)) lyClose(); });
+  // 악보를 누르는 동안에는 저장을 미룬다(누른 음표로 옮겨 가며 저장) — 음표가 아닌 곳이면 저장하고 입력 칸으로 돌아온다
+  scoreEl.addEventListener('pointerdown', () => { if (LY.on) LY.ptr = true; }, true);
+  document.addEventListener('pointerup', () => { if (!LY.ptr) return; setTimeout(() => { LY.ptr = false; if (LY.on && LY.inp && document.activeElement !== LY.inp) { lySave(); if (LY.inp) LY.inp.focus({ preventScroll: true }); } }, 80); });
+
+  // ── 인쇄: 총보 · 파트보(파트마다 새 쪽, 빈 마디는 여러 마디 쉼표로, 이조 악기는 기보음으로) ──
+  function partGroups() {
+    const out = [];
+    (E.model ? E.model.voices : []).forEach((v, i) => {
+      const last = out[out.length - 1];
+      if (v.group && last && last.group === v.group) { last.vs.push(v); return; }
+      out.push({ group: v.group || null, name: (v.name || '').replace(/\s*\(\d+명\)$/, '') || `파트 ${out.length + 1}`, full: v.name, vs: [v], i });
+    });
+    return out;
+  }
+  function printMenu(btn) {
+    const old = host.querySelector('.ed-pop'); if (old) { old.remove(); return; }
+    if (!E.model || !E.model.voices.length) return;
+    const gs = partGroups(), hasTr = gs.some(g => g.vs.some(v => v.trans));
+    const pop = document.createElement('div'); pop.className = 'ed-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '악보 인쇄');
+    pop.innerHTML = `<div class="ep-h"><b>악보 인쇄</b><button type="button" class="ep-x" aria-label="닫기">×</button></div>
+      <div class="ep-kind"><label><input type="radio" name="epk" value="score" checked><span><b>총보</b><small>모든 파트를 한 악보에 · 실음</small></span></label>
+      <label><input type="radio" name="epk" value="parts"><span><b>파트보</b><small>파트마다 새 쪽 · 빈 마디는 여러 마디 쉼표</small></span></label></div>
+      <div class="ep-parts" hidden><div class="ep-all"><button type="button" data-ep="all">모두</button><button type="button" data-ep="none">지우기</button></div>
+      ${gs.map((g, k) => `<label><input type="checkbox" data-pg="${k}" checked><span>${escH(g.full || g.name)}${g.vs.some(v => v.trans) ? ` <em>${escH(transLabel(g.vs[0].trans))}</em>` : ''}</span></label>`).join('')}
+      ${hasTr ? '<label class="ep-tr"><input type="checkbox" id="epTr" checked><span>이조 악기는 기보음(연주자가 읽는 음)으로</span></label>' : ''}</div>
+      <div class="ep-size"><span>악보 크기</span><select id="epScale"><option value="0.86">작게</option><option value="1" selected>보통</option><option value="1.15">크게</option></select></div>
+      <div class="ep-go"><button type="button" class="btn sm" data-ep="go">인쇄 · PDF로 저장</button></div>`;
+    host.appendChild(pop);
+    const hr = host.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    pop.style.top = (br.bottom - hr.top + 8) + 'px'; pop.style.right = Math.max(8, hr.right - br.right) + 'px';
+    const kind = () => pop.querySelector('[name=epk]:checked').value;
+    pop.addEventListener('change', e => { if (e.target.name === 'epk') pop.querySelector('.ep-parts').hidden = kind() !== 'parts'; });
+    pop.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.classList.contains('ep-x')) return pop.remove();
+      if (b.dataset.ep === 'all' || b.dataset.ep === 'none') { pop.querySelectorAll('[data-pg]').forEach(c => { c.checked = b.dataset.ep === 'all'; }); return; }
+      if (b.dataset.ep === 'go') {
+        const scale = +pop.querySelector('#epScale').value || 1;
+        if (kind() === 'score') { pop.remove(); return doPrint([{ vs: E.model.voices, label: '총보' }], scale); }
+        const pick = [...pop.querySelectorAll('[data-pg]')].filter(c => c.checked).map(c => gs[+c.dataset.pg]);
+        if (!pick.length) return opts.toast && opts.toast('인쇄할 파트를 하나 이상 골라요');
+        const tr = !pop.querySelector('#epTr') || pop.querySelector('#epTr').checked;
+        pop.remove(); doPrint(pick.map(g => ({ vs: g.vs, label: g.name, part: true, tr })), scale);
+      }
+    });
+    setTimeout(() => { const off = e => { if (!pop.contains(e.target) && e.target !== btn) { pop.remove(); document.removeEventListener('pointerdown', off); } }; document.addEventListener('pointerdown', off); }, 0);
+  }
+  const escH = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const TRN = { 2: 'B♭ 악기', 9: 'E♭ 악기', 14: 'B♭ 악기(한 옥타브 위)', 21: 'E♭ 악기(한 옥타브 위)', '-3': 'A 악기', 7: 'F 악기' };
+  const transLabel = t => TRN[t] || `${t > 0 ? '+' : ''}${t}반음`;
+  function doPrint(pages, scale = 1) {
+    const m = E.model;
+    let box = document.getElementById('lsPrint');
+    if (!box) { box = document.createElement('div'); box.id = 'lsPrint'; document.body.appendChild(box); }
+    box.innerHTML = '';
+    const title = m.title || (opts.printTitle && opts.printTitle()) || '우리 노래';
+    const header = { ...(m.header || {}), ...(opts.printHeader ? opts.printHeader() : {}) };
+    pages.forEach(pg => {
+      const sec = document.createElement('section'); sec.className = 'lsp-page' + (pg.part ? ' part' : ' full');
+      let key = m.key, voices = pg.vs.map(v => ({ ...v, notes: v.notes }));
+      let trNote = '';
+      if (pg.part && pg.tr && voices[0].trans) { // 기보음: 조표와 음을 함께 옮긴다
+        const t = voices[0].trans; key = C.shiftKey(m.key, t);
+        voices = voices.map(v => ({ ...v, notes: v.notes.map(n => (n.p == null ? n : { ...n, p: n.p + t, chord: n.chord ? n.chord.map(x => x + t) : n.chord })), chords: null }));
+        trNote = `${transLabel(t)} · 기보음 · ${C.KEYS[key].name}`;
+      } else if (pg.part && voices[0].trans) trNote = '실음';
+      if (pg.part && !voices.some(v => v.chords) && m.voices[0] && m.voices[0].chords && !voices[0].drum && !voices[0].trans) voices[0] = { ...voices[0], chords: m.voices[0].chords }; // 리듬 파트도 코드 기호를
+      if (pg.part) voices = voices.map(v => ({ ...v, name: v.group ? v.name : '', sub: v.group ? v.sub : '' }));
+      const build = () => SC.buildAbcMap({ title, sub: m.sub, header: null, tempo: m.tempo, key, bars: m.bars, perLine: 4, voices, showTitle: false, intro: m.intro || 0, sections: m.sections, multirest: !!pg.part, ...(m.pickup != null ? { pickup: m.pickup } : {}) }).abc;
+      const credit = header.credit || m.sub || '', style = header.style ? `${header.style} ` : '';
+      sec.innerHTML = `<header class="lsp-h"><div class="lsp-part"><b>${escH(pg.label)}</b>${trNote ? `<small>${escH(trNote)}</small>` : pg.part ? '' : '<small>실음(C) 총보</small>'}</div><div class="lsp-meta">${escH(C.KEYS[m.key].name)} · ${m.bars}마디</div></header>
+        <div class="lsp-title"><h1>${escH(title)}</h1>${!pg.part && header.subtitle ? `<p class="lsp-sub">${escH(header.subtitle)}</p>` : ''}<div class="lsp-cr"><span>${escH(style)}♩ = ${m.tempo}</span><span>${escH(credit)}</span></div>${!pg.part && header.info ? `<p class="lsp-info">${escH(header.info)}</p>` : ''}</div>
+        <div class="lsp-score"></div><footer class="lsp-f">LIVE SCORE · 실시간 악보${pg.part ? ` · ${escH(pg.label)}` : ''}</footer>`;
+      box.appendChild(sec);
+      const tgt = sec.querySelector('.lsp-score'), abc = build();
+      let W = Math.round(740 / scale);
+      SC.renderAbc(tgt, abc, { staffwidth: W, print: true });
+      // 한 단(악보 한 줄)이 한 쪽에 들어가도록: 단이 너무 높으면 넓게 그려 작게 줄인다(총보처럼 보표가 많을 때)
+      const tall = Math.max(0, ...[...tgt.querySelectorAll('svg')].map(v => (v.viewBox && v.viewBox.baseVal ? v.viewBox.baseVal.height : 0)));
+      const need = Math.ceil(tall * 703 / 760); // A4 본문 높이에서 머리글·제목 자리를 뺀 만큼(첫 단도 제목과 한 쪽에)
+      if (need > W) { W = Math.min(2400, need); tgt.innerHTML = ''; SC.renderAbc(tgt, abc, { staffwidth: W, print: true }); }
+    });
+    document.body.classList.add('ls-printing');
+    const done = () => { document.body.classList.remove('ls-printing'); box.innerHTML = ''; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => window.print(), 120);
+  }
+
   const api = { render, onKey, midiPitch, follow, setView, clear: () => { E.sel = null; E.hist = []; }, host, get sel() { return E.sel; }, get speed() { return E.speed; } };
   return api;
 }

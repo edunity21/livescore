@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -131,7 +131,7 @@
     <div class="ctrl">
       <div class="ctl"><span>박자</span><b class="chip on">4/4</b></div>
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
-      <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조</option><option value="G">사장조</option><option value="D">라장조</option><option value="A">가장조</option><option value="E">마장조</option><option value="F">바장조</option><option value="Bb">내림나장조</option><option value="Eb">내림마장조</option></select></label>
+      <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조 (C)</option><option value="G">사장조 (G)</option><option value="D">라장조 (D)</option><option value="A">가장조 (A)</option><option value="E">마장조 (E)</option><option value="B">나장조 (B)</option><option value="F#">올림바장조 (F♯)</option><option value="Gb">내림사장조 (G♭)</option><option value="Db">내림라장조 (D♭)</option><option value="Ab">내림가장조 (A♭)</option><option value="Eb">내림마장조 (E♭)</option><option value="Bb">내림나장조 (B♭)</option><option value="F">바장조 (F)</option></select></label>
       <label class="ctl"><span>첫 마디 <small>여린내기면 못갖춘마디</small></span><select id="pickSel"><option value="0">갖춘마디 (1박부터)</option><option value="2">못갖춘마디 · 반 박</option><option value="4">못갖춘마디 · 1박</option><option value="6">못갖춘마디 · 1박 반</option><option value="8">못갖춘마디 · 2박</option><option value="12">못갖춘마디 · 3박</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
       <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
@@ -256,11 +256,11 @@
   <div class="step-head"><p class="kicker">STEP 6 · 3차시 15분</p><h1 id="h6">AI 편곡</h1><p class="one">원하는 느낌과 밴드 악기를 고르면 편곡이 만들어지고, 파트별로 나누어 음표로 바뀝니다.</p></div>
   <div class="card ens-card" id="ensCard">
     <div class="h2row"><h2>우리 편성 <small>연주할 사람 수 — 사람 수에 맞춰 실제로 연주할 수 있는 악보로 계산해요</small></h2><span class="ens-sum" id="ensSum"></span></div>
-    <div class="ens" id="ensBox"></div>
+    <div class="ens-box" id="ensBox"></div>
     <div class="ctrl slim">
       <label class="ctl"><span>전주(Intro) <small>후렴 첫 마디들을 악기로</small></span><select id="introSel"><option value="0">없음</option><option value="2">2마디</option><option value="4">4마디</option></select></label>
     </div>
-    <p class="hint">관악기·현악기는 한 사람이 한 음, 키보드는 두 손, 기타는 한 사람에 한 보표, 드럼은 두 손과 발로 칠 수 있게만 씁니다. 같은 악기가 여럿이면 화음을 나눠 맡아요.</p>
+    <p class="hint">관악기·현악기는 한 사람이 한 음, 키보드는 두 손, 기타는 한 사람에 한 보표, 드럼은 두 손과 발로 칠 수 있게만 씁니다. 같은 악기가 여럿이면 화음을 나눠 맡아요. 리코더·우쿨렐레는 반 전체가 함께 할 수 있게 쉽게, 클라리넷·트럼펫·색소폰(이조 악기)은 총보는 실음으로, 파트보는 연주자가 읽는 기보음으로 인쇄해요.</p>
   </div>
   <div class="tabs" role="tablist">
     <button type="button" role="tab" data-tab="auto" aria-selected="true">자동 편곡 <small>연습·시연용</small></button>
@@ -272,6 +272,8 @@
     </div>
     <div class="opt"><span class="lab">장르</span><div class="seg2" id="optGenre"></div></div>
     <div class="opt"><span class="lab">분위기</span><div class="seg2" id="optMood"></div></div>
+    <div class="opt"><span class="lab">코드 범위</span><div class="seg2" id="optRange"></div></div>
+    <div class="opt"><span class="lab">코드 바뀜</span><div class="seg2" id="optPer"></div></div>
     <p class="lock">🔒 내 선율과 가사는 그대로 두고 반주 파트만 만듭니다 — 빠르기·길이·조성도 그대로.</p>
     <p class="hint">자동 편곡은 인터넷 AI 없이 정해진 규칙으로 반주를 만듭니다. 실제 수업에서는 수노로 만든 편곡을 옆 탭에서 불러와요.</p>
     <div class="row"><button class="btn" type="button" id="genArr">✨ 편곡 만들기</button></div>
@@ -301,7 +303,7 @@
         <div class="ctrl">
           <div class="ctl s-bpm"><span>빠르기(BPM) <small id="sBpmInfo"></small></span><div class="row tight"><input type="number" id="sBpm" min="20" max="300" step="any" value="120" aria-label="빠르기"><button type="button" class="btn ghost sm" id="sHalf" title="빠르기를 정확히 반으로 — 한 마디가 두 배로 길어져요">÷2</button><button type="button" class="btn ghost sm" id="sDouble" title="빠르기를 정확히 두 배로">×2</button></div></div>
           <div class="ctl"><span>노래 시작 마디 <small>7단계 비교 기준</small></span><div class="row tight"><input type="number" id="sBar" min="1" max="200" value="1" aria-label="노래 시작 마디"><button type="button" class="btn ghost sm" id="sBarAuto" hidden title="노래 첫 음으로 다시 찾기">자동</button></div></div>
-          <div class="ctl"><span>첫 박 위치 <small>초</small></span><div class="row tight"><button type="button" class="btn ghost sm" id="sOffR" title="모든 음표를 반 박 앞으로">◀ 반 박</button><input type="number" id="sOff" step="0.01" value="0" aria-label="첫 박 미세 조정(초)"><button type="button" class="btn ghost sm" id="sOffL" title="모든 음표를 반 박 뒤로">반 박 ▶</button></div></div>
+          <div class="ctl s-off"><span>첫 박 위치 <small>넣을 때 자동으로 찾아요 · 초</small></span><div class="row tight"><button type="button" class="btn ghost sm" id="sOffR4" title="모든 음표를 한 박 앞으로">◀ 한 박</button><button type="button" class="btn ghost sm" id="sOffR" title="모든 음표를 반 박 앞으로">◀ 반</button><input type="number" id="sOff" step="0.01" value="0" aria-label="첫 박 미세 조정(초)"><button type="button" class="btn ghost sm" id="sOffL" title="모든 음표를 반 박 뒤로">반 ▶</button><button type="button" class="btn ghost sm" id="sOffL4" title="모든 음표를 한 박 뒤로">한 박 ▶</button></div></div>
           <label class="ctl chk"><input type="checkbox" id="sClean" checked><span>잔음 정리 <small>아주 짧은 음 빼기</small></span></label>
         </div>
         <p class="hint">설정을 바꾸면 악보를 다시 만들어요. 악보에서 고친 내용은 처음 상태로 돌아갑니다.</p>
@@ -324,13 +326,15 @@
     </div>
     <div class="card chord-card">
       <div class="h2row"><h2>코드 바꾸기 <small id="chordWho"></small></h2><button type="button" class="btn ghost sm" id="resetChords">처음 코드로</button></div>
-      <p class="sub">마디마다 코드를 골라 보세요. 반주가 그 코드로 다시 만들어지고, 코드 소리를 바로 들려줘요. 숫자는 그 마디 노래 음 가운데 <b>화음음</b>의 비율 — 높을수록 잘 어울려요.</p>
+      <p class="sub">마디마다 코드를 골라 보세요. 반주가 그 코드로 다시 만들어지고, 코드 소리를 바로 들려줘요. 숫자는 그 마디 노래 음 가운데 <b>화음음</b>의 비율 — 높을수록 잘 어울려요. <b>나누기</b>를 누르면 한 마디에 코드를 둘·넷까지 쓸 수 있고, 목록에는 기본 화음과 함께 <b>1차·2차 관계조의 화음·부속화음</b>(V/V, ♭VII, iv …)이 있어요.</p>
+      <div class="ctrl slim h-opts"><label class="ctl"><span>코드 범위</span><select id="hRange"></select></label><label class="ctl"><span>한 마디 코드 수</span><select id="hPer"></select></label><div class="ctl"><span>&nbsp;</span><button type="button" class="btn ghost sm" id="reHarm">이 설정으로 코드 다시 붙이기</button></div></div>
       <div class="chord-box" id="chordBox"></div>
     </div>
   </div>
   <div class="card ed-card" id="edCard" hidden>
     <div class="h2row"><h2>악보 편집 <small id="edName"></small></h2><div class="seg2 sm" id="edPick" aria-label="편집할 편곡"></div></div>
-    <p class="sub">음표를 눌러 고른 뒤 높이와 길이를 바꿔요. 쉼표를 고르고 ▲나 건반을 누르면 음이 들어가요. 고친 악보는 듣기·비교·총보에 바로 쓰여요.</p>
+    <p class="sub">음표를 눌러 고른 뒤 높이와 길이를 바꿔요. 쉼표를 고르고 ▲나 건반을 누르면 음이 들어가요. <b>가사 입력</b>(L)을 누르면 피날레처럼 음표 아래에 바로 글자를 쳐 넣어요. 고친 악보는 듣기·비교·총보에 바로 쓰여요.</p>
+    <div class="et-row"><div class="et-grp et-key" id="etKey"></div><div class="et-grp" id="etShift" hidden><span class="et-l">박 옮기기</span><button type="button" data-sh="-4" title="모든 파트를 한 박 앞으로">◀ 한 박</button><button type="button" data-sh="-2" title="모든 파트를 반 박 앞으로">◀ 반 박</button><button type="button" data-sh="2" title="모든 파트를 반 박 뒤로">반 박 ▶</button><button type="button" data-sh="4" title="모든 파트를 한 박 뒤로">한 박 ▶</button></div></div>
     <div id="ed6"></div>
   </div>
 </section>
@@ -369,6 +373,7 @@
   <div class="step-head"><p class="kicker">STEP 8 · 4차시 15분</p><h1 id="h8">악보 완성</h1><p class="one">노래와 밴드 파트가 함께 적힌 총보를 완성하고, 파일로 내보내거나 다시 만듭니다.</p></div>
   <div class="card print-area">
     <div class="h2row"><h2>밴드 총보</h2><span class="sub" id="scoreInfo"></span></div>
+    <div class="et-row"><div class="et-grp et-key" id="etKey8"></div></div>
     <div id="ed8"></div>
   </div>
   <div class="grid2">
@@ -452,6 +457,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=8"></script>
+<script type="module" src="js/app.js?v=9"></script>
 </body>
 </html>

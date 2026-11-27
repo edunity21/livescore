@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=8';
+import { BAR } from './core.js?v=9';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };
@@ -208,7 +208,7 @@ export function writeMidi(tracks, tempo, meter = 4) {
   tr0.push(0, 0xff, 0x58, 4, meter, 2, 24, 8);
   tr0.push(0, 0xff, 0x2f, 0);
   push(...str('MTrk'), ...u32(tr0.length), ...tr0);
-  const DP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45 };
+  const DP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45, tamb: 54 };
   tracks.forEach((t, i) => {
     const ch = t.channel ?? (i >= 9 ? i + 1 : i);
     const ev = [];

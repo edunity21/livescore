@@ -7,13 +7,24 @@ export const KEYS = {
   C: { name: '다장조', tonic: 0, fifths: 0, flat: false },
   G: { name: '사장조', tonic: 7, fifths: 1, flat: false },
   D: { name: '라장조', tonic: 2, fifths: 2, flat: false },
-  F: { name: '바장조', tonic: 5, fifths: -1, flat: true },
   A: { name: '가장조', tonic: 9, fifths: 3, flat: false },
   E: { name: '마장조', tonic: 4, fifths: 4, flat: false },
+  B: { name: '나장조', tonic: 11, fifths: 5, flat: false },
+  'F#': { name: '올림바장조', tonic: 6, fifths: 6, flat: false, fix: { 5: ['E', 1] } }, // 이끎음은 미♯
+  F: { name: '바장조', tonic: 5, fifths: -1, flat: true },
   Bb: { name: '내림나장조', tonic: 10, fifths: -2, flat: true },
   Eb: { name: '내림마장조', tonic: 3, fifths: -3, flat: true },
+  Ab: { name: '내림가장조', tonic: 8, fifths: -4, flat: true },
+  Db: { name: '내림라장조', tonic: 1, fifths: -5, flat: true },
+  Gb: { name: '내림사장조', tonic: 6, fifths: -6, flat: true, fix: { 11: ['C', -1] } }, // 버금딸림음은 도♭
 };
-export const KEY_ORDER = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb'];
+// 5도권 순서(올림표 → 내림표) — 12개 장조 모두
+export const KEY_ORDER = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F'];
+const KEY_OF_PC = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+// 으뜸음 피치클래스 → 조(조표가 적은 쪽, 올림바·내림사는 앞 조의 쪽을 따른다)
+export function keyByPc(t, flatPref = false) { const x = ((t % 12) + 12) % 12; return x === 6 ? (flatPref ? 'Gb' : 'F#') : KEY_OF_PC[x]; }
+// 조를 반음 sh개만큼 옮긴 조
+export function shiftKey(key, sh) { const k = KEYS[key] || KEYS.C; return keyByPc(k.tonic + sh, sh < 0 ? true : k.flat); }
 export const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 
 export const pc = p => ((p % 12) + 12) % 12;
@@ -154,6 +165,7 @@ export function lyricFlow(melody, lines, linesBars = 2) {
     let k = 0, slots = 0;
     inLine.forEach((n, i) => {
       if (n.lx === 'e' && i > 0) { map.set(n.id, { text: '', kind: 'ext', line: li }); return; }
+      if (n.lx === 'x') { map.set(n.id, { text: '', kind: 'skip', line: li }); return; } // 글자 없이 건너뛰는 음(타이프 인 스코어)
       const take = n.lx === 'd' ? 2 : 1;
       slots += take;
       const txt = syl.slice(k, k + take).join('');
@@ -165,6 +177,43 @@ export function lyricFlow(melody, lines, linesBars = 2) {
     report.push({ line: li, syl: syl.length, slots, notes: inLine.length, ok: rest || (syl.length === slots && syl.length > 0), rest, extra: syl.slice(slots) });
   });
   return { map, report };
+}
+
+// 타이프 인 스코어: 음표 하나에 글자를 적고, 그 줄의 노랫말·글자 붙임(lx)을 다시 맞춘다
+// text: 글자(한 음에 두 글자까지) · '' 지우기 · '_' 앞 글자를 늘이기 — 띄어쓰기는 원래 노랫말의 자리를 지킨다
+export function setNoteLyric(melody, lines, id, text) {
+  const n = melody.find(x => x.id === id); if (!n || n.p == null) return null;
+  const li = Math.max(0, lineOf(n.s)); while (lines.length <= li) lines.push({ text: '', chorus: false });
+  const span = BAR * 2, P = METER.pickup;
+  const inLine = melody.filter(x => x.p != null && x.s >= li * span - P && x.s < (li + 1) * span - P).sort((a, b) => a.s - b.s);
+  const { map } = lyricFlow(melody, lines);
+  const src = lines[li].text || '', all = syllables(src);
+  const gap = []; let k = -1; for (const ch of src) { if (/[\p{L}\p{N}]/u.test(ch)) { k++; gap[k] = ''; } else if (k >= 0) gap[k] += ch; }
+  const lead = (src.match(/^[^\p{L}\p{N}]*/u) || [''])[0];
+  let used = 0;
+  const cells = inLine.map(x => {
+    const m = map.get(x.id); if (!m || m.kind === 'skip' || m.kind === 'none') return { t: '', g: '' };
+    if (m.kind === 'ext') return { t: '_', g: '' };
+    const c = syllables(m.text).length; used = Math.max(used, m.idx + c);
+    return { t: m.text, g: c ? gap[m.idx + c - 1] || '' : '' };
+  });
+  const rest = all.slice(used).map((t, j) => ({ t, g: gap[used + j] || '' })); // 음표보다 많은 글자는 줄 끝에 그대로
+  const i = inLine.indexOf(n);
+  let t = String(text || '').trim(), long = false;
+  if (t !== '_') { const sy = syllables(t); long = sy.length > 2; t = sy.slice(0, 2).join(''); }
+  cells[i] = { t: t === '_' && i === 0 ? '' : t, g: cells[i].t && t && t !== '_' ? cells[i].g : '' };
+  const lastT = cells.reduce((a, c, j) => (c.t && c.t !== '_' ? j : a), -1);
+  const out = [];
+  cells.forEach((c, j) => {
+    const x = inLine[j];
+    if (c.t === '_') { x.lx = j > 0 ? 'e' : 'x'; return; }
+    if (!c.t) { x.lx = j < lastT ? 'x' : 'n'; return; }
+    x.lx = syllables(c.t).length > 1 ? 'd' : 'n';
+    out.push(c.t + c.g);
+  });
+  rest.forEach(c => out.push(c.t + c.g));
+  lines[li].text = (lead + out.join('')).replace(/\s+$/, '');
+  return { line: li, long };
 }
 
 // 음절 j를 줄 안 음표 t에 오도록 옮기기(끌어 놓기)
@@ -198,35 +247,64 @@ export function placeSyllable(melody, lines, li, j, targetId) {
   }
 }
 
-// ── 화성: 마디(또는 반 마디)마다 3화음 고르기 ──
+// ── 화성: 마디(또는 반 마디·박)마다 3화음 고르기 ──
+// g 0 = 이 조의 기본 화음, 1 = 1차 관계조(딸림조·버금딸림조·나란한조)에서 온 화음·부속화음, 2 = 2차 관계조·같은으뜸음조에서 빌려온 화음
+// st: 음 이름 자리(0 = 으뜸음 글자) — 코드 이름 철자에 쓴다(예: 다장조의 ♭VII = B♭)
 const DEG = [
-  { r: 0, q: '', name: 'I' }, { r: 2, q: 'm', name: 'ii' }, { r: 4, q: 'm', name: 'iii' },
-  { r: 5, q: '', name: 'IV' }, { r: 7, q: '', name: 'V' }, { r: 9, q: 'm', name: 'vi' },
+  { r: 0, q: '', name: 'I', st: 0, g: 0 }, { r: 2, q: 'm', name: 'ii', st: 1, g: 0 }, { r: 4, q: 'm', name: 'iii', st: 2, g: 0 },
+  { r: 5, q: '', name: 'IV', st: 3, g: 0 }, { r: 7, q: '', name: 'V', st: 4, g: 0 }, { r: 9, q: 'm', name: 'vi', st: 5, g: 0 },
+  { r: 2, q: '', name: 'II', st: 1, g: 1, label: 'V/V · 딸림조' }, { r: 4, q: '', name: 'III', st: 2, g: 1, label: 'V/vi · 나란한조' },
+  { r: 9, q: '', name: 'VI', st: 5, g: 1, label: 'V/ii' }, { r: 11, q: 'm', name: 'vii', st: 6, g: 1, label: '딸림조 iii' },
+  { r: 7, q: 'm', name: 'v', st: 4, g: 1, label: '버금딸림조 ii' }, { r: 10, q: '', name: '♭VII', st: 6, g: 1, label: '버금딸림조 IV' },
+  { r: 11, q: '', name: 'VII', st: 6, g: 2, label: 'V/iii' }, { r: 5, q: 'm', name: 'iv', st: 3, g: 2, label: '같은으뜸음조' },
+  { r: 8, q: '', name: '♭VI', st: 5, g: 2, label: '같은으뜸음조' }, { r: 3, q: '', name: '♭III', st: 2, g: 2, label: '같은으뜸음조' },
 ];
+export const CHORD_GROUPS = ['기본 화음', '1차 관계조 · 부속화음', '2차 관계조 · 빌려온 화음'];
+export const CHORD_RANGE = { basic: '기본 6화음', near: '1차 관계조까지', far: '2차 관계조까지' };
+export const CHORD_PER = { 1: '마디마다 1개', 2: '마디마다 2개', 4: '박마다(최대 4개)' };
 const TRANS = { // 앞 화음 → 다음 화음 가산점
-  I: { IV: 2, V: 2, vi: 1.5, ii: 1, iii: .5, I: .6 },
-  ii: { V: 2.5, IV: .5, I: .2, vi: .3, ii: .4, iii: 0 },
-  iii: { vi: 2, IV: 1.5, ii: .5, I: .3, V: .3, iii: .3 },
-  IV: { V: 2, I: 2, ii: 1, vi: .6, IV: .6, iii: .3 },
-  V: { I: 2.6, vi: 1.4, IV: .6, V: .6, ii: .2, iii: .2 },
-  vi: { IV: 2, ii: 1.6, V: 1, I: .6, iii: .6, vi: .4 },
+  I: { IV: 2, V: 2, vi: 1.5, ii: 1, iii: .5, I: .6, II: .5, III: .4, VI: .5, '♭VII': .6, '♭VI': .5, v: .4, iv: .2, '♭III': .3, VII: .2 },
+  ii: { V: 2.5, IV: .5, I: .2, vi: .3, ii: .4, iii: 0, II: .4 },
+  iii: { vi: 2, IV: 1.5, ii: .5, I: .3, V: .3, iii: .3, VI: .6, VII: .3 },
+  IV: { V: 2, I: 2, ii: 1, vi: .6, IV: .6, iii: .3, iv: 1.6, '♭VII': .8, II: .3 },
+  V: { I: 2.6, vi: 1.4, IV: .6, V: .6, ii: .2, iii: .2, III: .4, VI: .3, '♭VI': .4 },
+  vi: { IV: 2, ii: 1.6, V: 1, I: .6, iii: .6, vi: .4, II: .6, III: .5 },
+  II: { V: 2.6, IV: .4, ii: .3, I: .3, II: .4 },
+  III: { vi: 2.6, IV: .8, ii: .3, III: .4 },
+  VI: { ii: 2.6, II: .6, V: .5, IV: .4, VI: .4 },
+  VII: { iii: 2.4, vi: .8, III: .4, VII: .4 },
+  vii: { iii: 1.2, vi: 1, IV: .8, I: .3, III: .5 },
+  v: { IV: 1.6, I: .8, vi: .6, VI: .5 },
+  '♭VII': { I: 2.2, IV: 1.2, V: .6, '♭VI': .5, '♭VII': .4 },
+  '♭VI': { '♭VII': 2, V: 1.4, I: 1.2, iv: .6, '♭VI': .4 },
+  iv: { I: 2.2, V: 1.2, '♭VII': .6, iv: .4 },
+  '♭III': { IV: 1.2, '♭VI': 1.2, '♭VII': 1, ii: .5 },
 };
+const GPEN = [0, .9, 1.4]; // 넓은 범위의 화음은 노래 음이 분명히 바랄 때만
 export function chordTones(ch, tonic) { // 반환: 피치클래스 3개
   const root = pc(tonic + ch.r);
   const third = pc(root + (ch.q === 'm' ? 3 : 4));
   return [root, third, pc(root + 7)];
 }
+const LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'], NAT = [0, 2, 4, 5, 7, 9, 11];
+export const chordDeg = ch => DEG.find(x => x.r === ch.r && x.q === ch.q) || null;
 export function chordName(ch, key) {
-  const k = KEYS[key] || KEYS.C;
+  const kid = KEYS[key] ? key : 'C', k = KEYS[kid];
+  const root = pc(k.tonic + ch.r), dg = chordDeg(ch);
+  if (dg) { // 음 이름 자리를 따라 철자(다장조 ♭VII = B♭, 마장조 III = G♯)
+    const li = (LETTERS.indexOf(kid[0]) + dg.st) % 7, alt = ((root - NAT[li]) % 12 + 18) % 12 - 6;
+    if (Math.abs(alt) <= 1) return LETTERS[li] + (alt > 0 ? '♯' : alt < 0 ? '♭' : '') + ch.q;
+  }
   const flatL = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
   const L = k.flat ? flatL : ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-  return L[pc(k.tonic + ch.r)] + ch.q;
+  return L[root] + ch.q;
 }
-// opts: {pool:['I','IV','V','vi'...], perBar:1|2, seed}
+// opts: {pool:['I','IV','V','vi'...], range:'basic'|'near'|'far', perBar:1|2|4, seed}
 export function harmonize(melody, bars, key, opts = {}) {
   const k = KEYS[key] || KEYS.C;
-  const pool = DEG.filter(d => (opts.pool || ['I', 'ii', 'IV', 'V', 'vi']).includes(d.name));
-  const per = opts.perBar || 1;
+  const base = opts.pool || ['I', 'ii', 'IV', 'V', 'vi'], range = opts.range || 'basic';
+  const pool = DEG.filter(d => (d.g === 0 ? base.includes(d.name) : d.g === 1 ? range !== 'basic' : range === 'far'));
+  const per = [1, 2, 4].includes(+opts.perBar) ? +opts.perBar : 1;
   const segLen = BAR / per;
   const segs = bars * per;
   const score = (ch, seg) => {
@@ -243,7 +321,7 @@ export function harmonize(melody, bars, key, opts = {}) {
       if (x === tones[0]) sc += 1.25 * w; else if (tones.includes(x)) sc += 1 * w;
       else if (MAJOR.includes(pc(x - k.tonic))) sc -= .35 * w; else sc -= .8 * w;
     }
-    return sc / 4;
+    return sc / 4 * (per === 4 ? 1.5 : 1) - GPEN[ch.g] * (per === 4 ? .6 : 1);
   };
   // 비터비
   let best = pool.map(ch => ({ s: score(ch, 0) + (ch.name === 'I' ? 2 : 0), path: [ch] }));
@@ -253,20 +331,26 @@ export function harmonize(melody, bars, key, opts = {}) {
       let top = null;
       for (const b of best) {
         const prev = b.path[b.path.length - 1];
-        let s = b.s + (TRANS[prev.name][ch.name] || 0) * (opts.flow || 1);
-        if (prev.name === ch.name && per === 2 && i % 2 === 1) s += .8; // 반 마디 바꿈은 아껴서
+        let s = b.s + ((TRANS[prev.name] || {})[ch.name] ?? (ch.g ? .1 : .2)) * (opts.flow || 1) / (per === 4 && i % per ? 3 : 1);
+        if (prev.name === ch.name && per > 1 && i % per) s += per === 4 ? 1.1 : .8; // 마디 안에서 바꿈은 아껴서
         if (!top || s > top.s) top = { s, path: b.path };
       }
       let s = top.s + score(ch, i) + ((opts.bias || {})[ch.name] || 0);
-      if (last && per === 1) s += ch.name === 'I' ? 4 : -3;
-      if (last && per === 2) s += ch.name === 'I' ? 4 : -2;
+      if (last) s += ch.name === 'I' ? 4 : per === 1 ? -3 : -2;
       if (pen && per === 1) s += ch.name === 'V' ? 1.2 : 0;
       if (opts.seed) s += ((ch.r * 7 + i * 13 + opts.seed * 5) % 9) * .04;
       return { s, path: [...top.path, ch] };
     });
   }
   best.sort((a, b) => b.s - a.s);
-  return best[0].path.map((ch, i) => ({ s: i * segLen, d: segLen, r: ch.r, q: ch.q, deg: ch.name, name: chordName(ch, key) }));
+  // 같은 화음이 이어지면 하나로 합친다(마디를 넘지 않게)
+  const out = [];
+  best[0].path.forEach((ch, i) => {
+    const s = i * segLen, prev = out[out.length - 1];
+    if (prev && prev.r === ch.r && prev.q === ch.q && Math.floor(prev.s / BAR) === Math.floor(s / BAR)) { prev.d += segLen; return; }
+    out.push({ s, d: segLen, r: ch.r, q: ch.q, deg: ch.name, name: chordName(ch, key) });
+  });
+  return out;
 }
 
 // 화음 → 실제 음(성부)
@@ -381,9 +465,12 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
   const { genre = 'pop', mood = 'bright', inst = ['drums', 'bass', 'keys', 'guitar'] } = settings;
   const pools = [['I', 'IV', 'V', 'vi'], ['I', 'ii', 'iii', 'IV', 'V', 'vi'], ['I', 'ii', 'IV', 'V', 'vi']];
   const biases = [{ I: .3, IV: .3, V: .3 }, { vi: 1.6, ii: 1.3, iii: 1.1, I: -.4 }, { IV: .4, vi: .5 }];
-  const chords = harmonize(melody, bars, key, { pool: pools[variant % 3], perBar: variant === 2 ? 2 : 1, seed: variant + 1, flow: variant === 1 ? .6 : 1.1, bias: biases[variant % 3] });
-  if (fixed && fixed.length) { // 학생이 고른 코드로 바꾸기(같은 자리·같은 길이)
-    chords.forEach((c, i) => { const f = fixed.find(x => x.s === c.s && x.d === c.d); if (f) chords[i] = makeChord(f.r, f.q, c.s, c.d, key); });
+  const per = settings.perBar && settings.perBar !== 'auto' ? +settings.perBar : variant === 2 ? 2 : 1;
+  let chords = harmonize(melody, bars, key, { pool: pools[variant % 3], range: settings.range || 'basic', perBar: per, seed: variant + 1, flow: variant === 1 ? .6 : 1.1, bias: biases[variant % 3] });
+  if (fixed && fixed.length) { // 학생이 고른 코드로 바꾸기(나누고 합친 자리 그대로) — 고르지 않은 자리만 새로 붙인 화음으로 채운다
+    const fx = fixed.filter(f => f.s >= 0 && f.s < bars * BAR).map(f => makeChord(f.r, f.q, f.s, Math.min(f.d, bars * BAR - f.s), key));
+    const cover = (a, b) => fx.some(f => f.s < b && a < f.s + f.d);
+    chords = [...fx, ...chords.filter(c => !cover(c.s, c.s + c.d))].sort((a, b) => a.s - b.s);
   }
   const chorusBar = b => lines[Math.floor(b / 2)] && lines[Math.floor(b / 2)].chorus;
   const chordAt = u => chords.find(c => u >= c.s && u < c.s + c.d) || chords[chords.length - 1];
@@ -416,7 +503,7 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
         else if (genre === 'ballad' || genre === 'acoustic' || mood === 'calm') {
           if (c.d >= 16) { notes.push({ p: low, s: c.s, d: 8 }); notes.push({ p: fifth, s: c.s + 8, d: 8 }); } else notes.push({ p: low, s: c.s, d: c.d });
         } else {
-          const pat = c.d >= 16 ? [[0, 6, low], [6, 2, low], [8, 6, fifth], [14, 2, low]] : [[0, 6, low], [6, 2, low]];
+          const pat = c.d >= 16 ? [[0, 6, low], [6, 2, low], [8, 6, fifth], [14, 2, low]] : c.d >= 8 ? [[0, 6, low], [6, 2, low]] : [[0, c.d, low]];
           pat.forEach(([u, d, p]) => notes.push({ p, s: c.s + u, d }));
         }
       } else if (id === 'keys') {
@@ -520,7 +607,7 @@ export function styleVocal(melody, settings, variant, key = 'C') {
 // ── 코드 직접 고르기 ──
 export const CHORD_POOL = DEG;
 export function makeChord(r, q, s, d, key) {
-  const dg = DEG.find(x => x.r === r && x.q === q);
+  const dg = chordDeg({ r, q });
   return { s, d, r, q, deg: dg ? dg.name : '', name: chordName({ r, q }, key) };
 }
 // 코드마다 노래 음이 화음음과 얼마나 맞는지(0~1, 길이 가중)

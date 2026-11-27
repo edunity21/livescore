@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=8';
+import { BAR } from './core.js?v=9';
 
 let ctx = null, master = null;
 export function audio() {
@@ -70,6 +70,33 @@ export function voice(c, out, inst, p, t, dur, vel = .8) {
       const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(600, t); lp.frequency.linearRampToValueAtTime(2600, t + .06);
       o.connect(lp); lp.connect(g); env(.04, .16, .2, .7, .08); nodes = [o]; break;
     }
+    case 'recorder': { // 맑은 관(사인 + 약한 2배음, 숨소리 같은 빠른 시작)
+      const o = osc('sine', f), o2 = osc('triangle', f * 2), g2 = c.createGain(); g2.gain.value = .12; o2.connect(g2); g2.connect(g);
+      o.connect(g); env(.03, .3, .2, .85, .06); nodes = [o, o2]; break;
+    }
+    case 'reed': case 'sax': { // 클라리넷(홀수 배음) · 색소폰(더 밝게)
+      const o = osc(inst === 'sax' ? 'sawtooth' : 'square', f), lfo = osc('sine', 5), lg = c.createGain(); lg.gain.value = f * .004;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = inst === 'sax' ? 2400 : 1500; lp.Q.value = inst === 'sax' ? 2 : .7;
+      lfo.connect(lg); lg.connect(o.frequency); o.connect(lp); lp.connect(g); env(.04, inst === 'sax' ? .13 : .14, .25, .8, .07); nodes = [o, lfo]; break;
+    }
+    case 'trumpet': {
+      const o = osc('sawtooth', f), o2 = osc('square', f, 4);
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.linearRampToValueAtTime(3600, t + .05); lp.frequency.setTargetAtTime(2600, t + .05, .2);
+      const g2 = c.createGain(); g2.gain.value = .35; o2.connect(g2); g2.connect(lp); o.connect(lp); lp.connect(g); env(.03, .13, .2, .75, .07); nodes = [o, o2]; break;
+    }
+    case 'violin': case 'cello': {
+      const o = osc('sawtooth', f), lfo = osc('sine', 5.6), lg = c.createGain(); lg.gain.value = f * .007;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = inst === 'cello' ? 1300 : 2600;
+      lfo.connect(lg); lg.connect(o.frequency); o.connect(lp); lp.connect(g); env(.09, .12, .4, .85, .14); nodes = [o, lfo]; break;
+    }
+    case 'uke': { // 나일론 줄 튕김
+      const o = osc('triangle', f), o2 = osc('sine', f * 3, 5), g2 = c.createGain(); g2.gain.value = .15; o2.connect(g2); g2.connect(g);
+      o.connect(g); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.3 * vel, t + .004); g.gain.setTargetAtTime(0, t + .004, .22); relT = .1; nodes = [o, o2]; break;
+    }
+    case 'mallet': { // 실로폰: 짧고 단단한 나무 소리
+      const o = osc('sine', f), o2 = osc('sine', f * 3.9), g2 = c.createGain(); g2.gain.setValueAtTime(.25, t); g2.gain.exponentialRampToValueAtTime(.001, t + .06); o2.connect(g2); g2.connect(g);
+      o.connect(g); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.4 * vel, t + .002); g.gain.setTargetAtTime(0, t + .002, .09); relT = .05; nodes = [o, o2]; break;
+    }
     case 'voice': {
       const o = osc('triangle', f), o2 = osc('sine', f * 2), lfo = osc('sine', 5.5), lg = c.createGain(); lg.gain.value = f * .005;
       const g2 = c.createGain(); g2.gain.value = .18; o2.connect(g2); g2.connect(g);
@@ -121,6 +148,9 @@ function drum(c, out, p, t, vel) {
   } else if (p === 51 || p === 59 || p === 53) { // 라이드
     f.type = 'bandpass'; f.frequency.value = 6500; f.Q.value = 1.2;
     g.gain.setValueAtTime(.2 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .5);
+  } else if (p === 54) { // 탬버린: 방울
+    f.type = 'bandpass'; f.frequency.value = 8500; f.Q.value = 2.5;
+    g.gain.setValueAtTime(.3 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .22);
   } else { // 하이햇 · 기타
     f.type = 'highpass'; f.frequency.value = 7500;
     g.gain.setValueAtTime(.22 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);
@@ -149,9 +179,9 @@ export function click(t, accent) {
 
 // ── 재생 ──
 // tracks: [{inst:'voice'|'keys'|..|'drum', notes:[{p,s,d,chord?,kit?}], vol}]
-const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys', strings: 'strings', flute: 'flute', brass: 'brass', melody: 'voice' };
+const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys', strings: 'strings', flute: 'flute', brass: 'brass', melody: 'voice', recorder: 'recorder', reed: 'reed', sax: 'sax', trumpet: 'trumpet', violin: 'violin', cello: 'cello', uke: 'uke', mallet: 'mallet' };
 export function soundOf(id) { return INST_SOUND[id] || 'keys'; }
-const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45 };
+const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45, tamb: 54 };
 
 // 재생할 음을 시작 순서대로 한 줄로
 function flatten(tracks, from, to) {
