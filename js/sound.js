@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=6';
+import { BAR } from './core.js?v=7';
 
 let ctx = null, master = null;
 export function audio() {
@@ -34,14 +34,15 @@ export function voice(c, out, inst, p, t, dur, vel = .8) {
   g.connect(out);
   const f = mtof(p);
   const osc = (type, freq, det = 0) => { const o = c.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det; return o; };
+  let relT = .12;
   const env = (a, peak, dec, sus, rel) => {
+    relT = rel;
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak * vel, t + a);
     g.gain.setTargetAtTime(sus * peak * vel, t + a, dec);
     g.gain.setValueAtTime(sus * peak * vel, t + Math.max(a, dur));
     g.gain.setTargetAtTime(0, t + Math.max(a, dur), rel);
   };
-  const stopAt = t + dur + 1.2;
   if (inst === 'drum') return drum(c, out, p, t, vel);
   let nodes = [];
   switch (inst) {
@@ -88,7 +89,9 @@ export function voice(c, out, inst, p, t, dur, vel = .8) {
       nodes = [o, o2];
     }
   }
+  const stopAt = t + Math.max(.01, dur) + Math.max(.2, relT * 5); // 울림이 거의 사라지면 멈춘다
   nodes.forEach(n => { n.start(t); n.stop(stopAt); });
+  nodes[0].onended = () => { try { g.disconnect(); } catch (e) { } }; // 끝난 음은 소리 길에서 떼어 낸다(긴 곡에서 소리가 끊기지 않게)
   return { stop: (at) => { const s = at ?? c.currentTime; g.gain.cancelScheduledValues(s); g.gain.setTargetAtTime(0, s, .04); nodes.forEach(n => { try { n.stop(s + .3); } catch (e) { } }); } };
 }
 
@@ -97,7 +100,7 @@ function drum(c, out, p, t, vel) {
   if (p === 36 || p === 35) { // 큰북
     const o = c.createOscillator(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + .14);
     g.gain.setValueAtTime(.9 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .32);
-    o.connect(g); o.start(t); o.stop(t + .35); return;
+    o.connect(g); o.start(t); o.stop(t + .35); o.onended = () => { try { g.disconnect(); } catch (e) { } }; return;
   }
   const src = c.createBufferSource(); src.buffer = noise(c);
   const f = c.createBiquadFilter();
@@ -114,6 +117,7 @@ function drum(c, out, p, t, vel) {
     g.gain.setValueAtTime(.22 * vel, t); g.gain.exponentialRampToValueAtTime(.001, t + .05);
   }
   src.connect(f); f.connect(g); src.start(t); src.stop(t + 1.3);
+  src.onended = () => { try { g.disconnect(); } catch (e) { } };
 }
 
 // 건반 소리(실시간 연주)
@@ -140,44 +144,56 @@ const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys'
 export function soundOf(id) { return INST_SOUND[id] || 'keys'; }
 const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49 };
 
-export function schedule(c, out, tracks, tempo, t0, from = 0, to = Infinity) {
-  const u = 60 / tempo / 4;
-  let end = 0;
+// 재생할 음을 시작 순서대로 한 줄로
+function flatten(tracks, from, to) {
+  const ev = [];
   for (const tr of tracks) {
     const vol = tr.vol ?? .8;
-    for (const n of tr.notes) {
-      if (n.p == null || n.s < from || n.s >= to) continue;
-      const t = t0 + (n.s - from) * u;
-      const d = Math.min(n.d, to - n.s) * u * (tr.inst === 'voice' ? .96 : .92);
-      if (tr.inst === 'drum') {
-        (n.kit || [n.k || 'x']).forEach(k => drum(c, out, DRUMP[k] ?? n.p, t, vol));
-      } else {
-        (n.chord || [n.p]).forEach(p => voice(c, out, tr.inst, p, t, d, vol));
-      }
-      end = Math.max(end, t + d);
-    }
+    for (const n of tr.notes) { if (n.p == null || n.s < from || n.s >= to) continue; ev.push({ tr, n, vol }); }
   }
+  return ev.sort((a, b) => a.n.s - b.n.s);
+}
+function playOne(c, out, e, tempo, t0, from, to, clip = true) {
+  const u = 60 / tempo / 4, { tr, n, vol } = e;
+  const t = t0 + (n.s - from) * u;
+  const d = (clip ? Math.min(n.d, to - n.s) : n.d) * u * (tr.inst === 'voice' ? .96 : .92);
+  if (tr.inst === 'drum') (n.kit || [n.k || 'x']).forEach(k => drum(c, out, DRUMP[k] ?? n.p, t, vol));
+  else (n.chord || [n.p]).forEach(p => voice(c, out, tr.inst, p, t, d, vol));
+  return t + d;
+}
+export function schedule(c, out, tracks, tempo, t0, from = 0, to = Infinity, clip = true) {
+  let end = 0;
+  for (const e of flatten(tracks, from, to)) end = Math.max(end, playOne(c, out, e, tempo, t0, from, to, clip));
   return end;
 }
 
 let playing = null;
+// 미리 듣기: 곡 전체를 한꺼번에 예약하지 않고 1.5초 앞만 조금씩 예약한다.
+// (수노 스템처럼 음이 수천 개인 곡도 시작이 뭉치거나 소리가 끊기지 않게)
 export function play(tracks, tempo, opts = {}) {
   stop();
   const c = audio();
   const bus = c.createGain(); bus.connect(master);
-  const t0 = c.currentTime + .08;
   const from = opts.from || 0, to = opts.to ?? Infinity;
-  const end = schedule(c, bus, tracks, tempo, t0, from, to);
-  const len = Math.max(end - t0, ((to === Infinity ? 0 : to - from) * 60 / tempo / 4));
-  const me = { bus, t0, from, tempo, len, onend: opts.onend };
+  const ev = flatten(tracks, from, to), u = 60 / tempo / 4;
+  const endU = ev.reduce((a, e) => Math.max(a, Math.min(e.n.s + e.n.d, to)), from);
+  const t0 = c.currentTime + .12;
+  const len = Math.max((endU - from) * u, (to === Infinity ? 0 : to - from) * u);
+  const me = { bus, t0, from, tempo, len, onend: opts.onend, i: 0, pump: null };
+  const pump = () => {
+    if (playing !== me) return;
+    const horizon = c.currentTime + 1.5;
+    while (me.i < ev.length && t0 + (ev[me.i].n.s - from) * u < horizon) { playOne(c, bus, ev[me.i], tempo, t0, from, to); me.i++; }
+    if (me.i < ev.length) me.pump = setTimeout(pump, 200);
+  };
+  playing = me; pump();
   me.timer = setTimeout(() => { if (playing === me) { playing = null; opts.onend && opts.onend(); } }, (len + .4) * 1000);
-  playing = me;
   return me;
 }
 export function stop() {
   if (!playing) return;
   const p = playing; playing = null;
-  clearTimeout(p.timer);
+  clearTimeout(p.timer); clearTimeout(p.pump);
   const c = audio();
   p.bus.gain.setTargetAtTime(0, c.currentTime, .03);
   setTimeout(() => p.bus.disconnect(), 300);
@@ -190,36 +206,60 @@ export function position() { // 지금 재생 위치(16분음표 단위)
 }
 export const isPlaying = () => !!playing;
 
-// ── WAV 만들기(수노 Upload Audio용) ──
-export async function renderWav(tracks, tempo, units) {
-  const sr = 44100;
-  const secs = units * 60 / tempo / 4 + 1.5;
-  const oc = new OfflineAudioContext(2, Math.ceil(secs * sr), sr);
-  const bus = makeBus(oc);
-  schedule(oc, bus, tracks, tempo, .05);
-  const buf = await oc.startRendering();
-  return wavBlob(buf);
+// ── 음원 만들기(MP3·WAV) ──
+// 곡 전체를 한 번에 그리면 음이 많은 곡(수노 스템 등)은 몇 분이 걸려도 끝나지 않는다.
+// → 약 6초씩 잘라 따로 그린 뒤 이어 붙인다. onProgress(0~1)로 진행률을 알린다.
+async function renderMix(tracks, tempo, units, onProgress) {
+  const sr = 44100, u = 60 / tempo / 4, lead = .05;
+  const total = Math.ceil((units * u + 1.5 + lead) * sr);
+  const L = new Float32Array(total); // 내장 악기는 좌우가 같아 한 채널(모노)로 그린다
+  const ev = flatten(tracks, 0, units);
+  const chunkU = Math.max(4, Math.round(1.5 / u / 4) * 4); // 약 1.5초(박 단위)씩 — 조각이 짧을수록 한꺼번에 살아 있는 소리가 적어 빠르다
+  const jobs = [];
+  let i = 0;
+  for (let a = 0; a < units; a += chunkU) {
+    const b = Math.min(units, a + chunkU), part = [];
+    while (i < ev.length && ev[i].n.s < b) part.push(ev[i++]);
+    if (part.length) jobs.push({ a, b, part });
+  }
+  let done = 0, next = 0;
+  const work = async () => { // 조각 여러 개를 동시에(오디오 그리기는 따로 도는 일꾼에서 돈다)
+    while (next < jobs.length) {
+      const { a, b, part } = jobs[next++];
+      let last = (b - a) * u; part.forEach(e => { last = Math.max(last, (e.n.s + e.n.d - a) * u + 1.3); }); // 마지막 음의 울림까지
+      const oc = new OfflineAudioContext(1, Math.ceil(last * sr), sr);
+      const bus = makeBus(oc);
+      part.forEach(e => playOne(oc, bus, e, tempo, 0, a, Infinity, false));
+      const l = (await oc.startRendering()).getChannelData(0);
+      const off = Math.round((lead + a * u) * sr), n = Math.min(l.length, total - off);
+      for (let k = 0; k < n; k++) L[off + k] += l[k];
+      onProgress && onProgress(++done / jobs.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, work));
+  return { chans: [L], sr };
 }
-// MP3 만들기(수노 Upload Audio용) — lamejs(LGPL) 사용
-export async function renderMp3(tracks, tempo, units) {
+// MP3로 묶기 — lamejs(LGPL) 사용. chans: Float32Array 1개(모노) 또는 2개(스테레오)
+export async function encodeMp3(chans, sr, kbps = 160, onProgress) {
   if (!window.lamejs) throw new Error('MP3 도구를 불러오지 못했어요');
-  const sr = 44100;
-  const secs = units * 60 / tempo / 4 + 1.5;
-  const oc = new OfflineAudioContext(2, Math.ceil(secs * sr), sr);
-  const bus = makeBus(oc);
-  schedule(oc, bus, tracks, tempo, .05);
-  const buf = await oc.startRendering();
-  const enc = new window.lamejs.Mp3Encoder(2, sr, 160);
+  const enc = new window.lamejs.Mp3Encoder(chans.length, sr, kbps);
   const toI16 = f => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); o[i] = v < 0 ? v * 0x8000 : v * 0x7fff; } return o; };
-  const L = toI16(buf.getChannelData(0)), R = toI16(buf.getChannelData(1));
-  const out = [];
-  for (let i = 0; i < L.length; i += 1152) {
-    const b = enc.encodeBuffer(L.subarray(i, i + 1152), R.subarray(i, i + 1152));
+  const I = chans.map(toI16), N = I[0].length, out = [];
+  for (let i = 0; i < N; i += 1152) {
+    const b = I.length > 1 ? enc.encodeBuffer(I[0].subarray(i, i + 1152), I[1].subarray(i, i + 1152)) : enc.encodeBuffer(I[0].subarray(i, i + 1152));
     if (b.length) out.push(new Uint8Array(b));
-    if (i % (1152 * 200) === 0) await new Promise(r => setTimeout(r, 0));
+    if (i % (1152 * 200) === 0) { onProgress && onProgress(i / N); await new Promise(r => setTimeout(r, 0)); }
   }
   const f = enc.flush(); if (f.length) out.push(new Uint8Array(f));
   return new Blob(out, { type: 'audio/mpeg' });
+}
+export async function renderWav(tracks, tempo, units, onProgress) {
+  const { chans, sr } = await renderMix(tracks, tempo, units, onProgress);
+  return wavBlob({ numberOfChannels: chans.length, length: chans[0].length, sampleRate: sr, getChannelData: i => chans[i] });
+}
+export async function renderMp3(tracks, tempo, units, onProgress) {
+  const { chans, sr } = await renderMix(tracks, tempo, units, p => onProgress && onProgress(p * .7));
+  return encodeMp3(chans, sr, 128, p => onProgress && onProgress(.7 + p * .3));
 }
 function wavBlob(buf) {
   const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;

@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=6';
+import { BAR } from './core.js?v=7';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };
@@ -85,8 +85,83 @@ export function parseMidi(buf) {
     for (let i = 1; i < tempos.length && tempos[i].tick <= tick; i++) { s += (tempos[i].tick - last.tick) / div * last.us / 1e6; last = tempos[i]; }
     return s + (tick - last.tick) / div * last.us / 1e6;
   };
-  tracks.forEach(tr => tr.notes.forEach(n => { n.t = secOf(n.t0); n.d = Math.max(.02, secOf(n.t1) - n.t); }));
-  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), tracks };
+  // 빠르기 지도가 흔들려도(수노 'Fixed tempo'도 박마다 136~140) 악보의 박은 틱 위에 있다.
+  // → 곡 전체의 평균 빠르기 하나로 시간을 다시 계산해, 한 가지 빠르기로 박을 맞춰도 밀리지 않게 한다.
+  const lastTick = Math.max(1, ...tracks.flatMap(tr => tr.notes.map(n => n.t1)));
+  const spt = secOf(lastTick) / lastTick; // 틱 하나의 평균 길이(초)
+  tracks.forEach(tr => tr.notes.forEach(n => { n.t = n.t0 * spt; n.d = Math.max(.02, (n.t1 - n.t0) * spt); }));
+  const bpm = 60 / (spt * div);
+  const steady = new Set(tempos.map(x => x.us)).size <= 1;
+  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), bpm, steady, tracks };
+}
+
+// 여러 파일(같은 곡의 스템들)을 한 시간 축에 놓는다: 박(틱÷분해능) × 가장 긴 파일의 평균 빠르기
+export function retimeAll(list) {
+  if (!list.length) return null;
+  const len = m => Math.max(0, ...m.tracks.flatMap(t => t.notes.map(n => n.t1))) / m.div;
+  const ref = list.reduce((a, m) => (len(m) > len(a) ? m : a), list[0]);
+  const spb = 60 / ref.bpm;
+  list.forEach(m => m.tracks.forEach(t => t.notes.forEach(n => { n.t = n.t0 / m.div * spb; n.d = Math.max(.02, (n.t1 - n.t0) / m.div * spb); })));
+  return ref.bpm;
+}
+
+// ── 수노 스템 파일 정리 ──
+// 수노 MIDI는 스템 하나(예: 「곡 (Vocals).mid」)가 구간마다 여러 트랙으로 쪼개져 있다.
+// 파일 이름이 「… (스템).mid」 꼴이면 한 파트로 합친다. 우리 플랫폼에서 내보낸 MIDI처럼 이름이 다르면 트랙을 그대로 둔다.
+const STEM_RE = /\(([^()]+)\)\s*\.midi?$/i;
+const VOCAL_RE = /vocal|voice|vox|lead|melody|보컬|노래/i;
+const BACK_RE = /backing|harmony|백보컬|코러스/i;
+export const stemName = fileName => { const m = String(fileName).match(STEM_RE); return m ? m[1].trim() : null; };
+export function stemTracks(fileName, parsed) {
+  const stem = stemName(fileName);
+  const tracks = parsed.tracks;
+  if (!stem || tracks.length < 2) return tracks.map(t => ({ ...t, merged: 1 }));
+  // ① 드럼 채널(10번)과 음높이 악기가 섞였으면 많은 쪽만 (예: Brass 스템 속 드럼 3음)
+  const drumN = tracks.filter(t => t.ch === 9).reduce((a, t) => a + t.notes.length, 0);
+  const all = tracks.reduce((a, t) => a + t.notes.length, 0);
+  let use = drumN && drumN < all ? tracks.filter(t => (t.ch === 9) === (drumN * 2 >= all)) : tracks;
+  // ② 노래 스템: 가장 음이 많은 악기(프로그램) 트랙만 — 수노가 잘못 알아들은 스트링·하프 트랙을 뺀다
+  if (VOCAL_RE.test(stem) && !BACK_RE.test(stem)) {
+    const by = new Map(); use.forEach(t => by.set(t.program, (by.get(t.program) || 0) + t.notes.length));
+    const main = [...by.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    use = use.filter(t => t.program === main);
+  }
+  const notes = use.flatMap(t => t.notes).sort((a, b) => a.t0 - b.t0);
+  const prog = new Map(); use.forEach(t => prog.set(t.program, (prog.get(t.program) || 0) + t.notes.length));
+  const program = [...prog.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  return [{ name: stem, notes, ch: use.some(t => t.ch === 9) ? 9 : (use[0] || {}).ch || 0, program, merged: use.length, dropped: tracks.length - use.length }];
+}
+
+// ── 압축 파일(.zip)에서 MIDI 꺼내기 — 수노가 스템 MIDI를 zip 하나로 준다 ──
+export async function unzipMidi(file) {
+  const buf = await file.arrayBuffer(), d = new DataView(buf), u8 = new Uint8Array(buf);
+  // 끝의 '중앙 디렉터리 끝' 기록 찾기
+  let e = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) if (d.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('zip 파일이 아닙니다');
+  const count = d.getUint16(e + 10, true);
+  let o = d.getUint32(e + 16, true);
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    if (d.getUint32(o, true) !== 0x02014b50) break;
+    const flags = d.getUint16(o + 8, true), method = d.getUint16(o + 10, true);
+    const csize = d.getUint32(o + 20, true), nlen = d.getUint16(o + 28, true), xlen = d.getUint16(o + 30, true), clen = d.getUint16(o + 32, true);
+    const local = d.getUint32(o + 42, true);
+    const raw = u8.subarray(o + 46, o + 46 + nlen);
+    let name;
+    try { name = new TextDecoder('utf-8', { fatal: !(flags & 0x800) ? true : false }).decode(raw); } catch (x) { name = new TextDecoder('euc-kr').decode(raw); }
+    o += 46 + nlen + xlen + clen;
+    const base = name.split('/').pop();
+    if (!/\.midi?$/i.test(base) || base.startsWith('._')) continue;
+    const ln = d.getUint16(local + 26, true), lx = d.getUint16(local + 28, true);
+    const data = u8.subarray(local + 30 + ln + lx, local + 30 + ln + lx + csize);
+    let bytes;
+    if (method === 0) bytes = data;
+    else if (method === 8) bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else continue;
+    out.push(new File([bytes], base, { type: 'audio/midi' }));
+  }
+  return out;
 }
 
 // 파일 하나(수노 스템 하나)의 음들 → 박 단위 음표(16분음표)

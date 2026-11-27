@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=6';
-import * as SC from './score.js?v=6';
-import * as SND from './sound.js?v=6';
+import * as C from './core.js?v=7';
+import * as SC from './score.js?v=7';
+import * as SND from './sound.js?v=7';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -20,13 +20,30 @@ export function createEditor(host, opts) {
         <div class="ed-grp lens" aria-label="음 길이">${LENS.map(([d, n]) => `<button type="button" data-len="${d}">${n}</button>`).join('')}</div>
         <div class="ed-grp"><button type="button" data-e="del" title="지우기 (Delete)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button></div>
         <div class="ed-grp ed-plays"><button type="button" data-e="playall" class="pl" title="처음부터 듣기 (Space)">▶ 처음부터</button><button type="button" data-e="play" class="pl2" title="고른 마디부터 듣기">▶ 여기부터</button></div>
+        <div class="ed-grp ed-speed" role="group" aria-label="재생 빠르기"><button type="button" data-sp="-1" title="느리게">−</button><b class="ed-spv" title="재생 빠르기(악보의 빠르기는 그대로)">100%</b><button type="button" data-sp="1" title="빠르게">＋</button></div>
         <div class="ed-grp ed-view" role="group" aria-label="악보 보기"><button type="button" data-view="page">페이지 보기</button><button type="button" data-view="scroll">스크롤 보기</button></div>
       </div>
     </div>
     <div class="score ed-score"><div class="ed-cursor" hidden></div></div>`;
   const scoreEl = host.querySelector('.ed-score');
-  const E = { marks: [], tune: null, sel: null, hist: [], model: null, view: 'page', tl: null, follow: false };
-  try { E.view = localStorage.getItem('livescore-view') || 'page'; } catch (x) { }
+  const E = { marks: [], tune: null, sel: null, hist: [], model: null, view: 'page', tl: null, follow: false, speed: 1 };
+  try { E.view = localStorage.getItem('livescore-view') || 'page'; E.speed = +localStorage.getItem('livescore-speed') || 1; } catch (x) { }
+  const SPEEDS = [.5, .6, .7, .75, .8, .9, 1, 1.1, 1.25, 1.5];
+  function speedUI() {
+    const m = E.model, b = host.querySelector('.ed-spv');
+    b.textContent = `${Math.round(E.speed * 100)}%` + (m && m.tempo ? ` · ♩=${Math.round(m.tempo * E.speed)}` : '');
+    host.querySelector('.ed-speed').classList.toggle('on', E.speed !== 1);
+  }
+  function setSpeed(dir) {
+    let i = SPEEDS.indexOf(E.speed); if (i < 0) i = SPEEDS.indexOf(1);
+    E.speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, i + dir))];
+    try { localStorage.setItem('livescore-speed', E.speed); } catch (x) { }
+    speedUI();
+    if (SND.isPlaying() && E.follow) { // 듣는 중이면 지금 자리부터 새 빠르기로 다시
+      const pos = SND.position(); const btn = host.querySelector('.ed-plays .playing') || host.querySelector('[data-e=playall]');
+      SND.stop(); opts.onPlay && opts.onPlay(Math.max(0, Math.floor(pos)), btn, E.speed); if (SND.isPlaying()) follow();
+    }
+  }
   const cursor = () => scoreEl.querySelector('.ed-cursor');
 
   function render() {
@@ -39,12 +56,24 @@ export function createEditor(host, opts) {
     const cur = cursor(); if (cur) cur.remove();
     scoreEl.classList.toggle('scrollview', scroll);
     host.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === E.view));
-    const w = scroll ? Math.max(900, m.bars * Math.max(170, 40 + avgPerBar(marks, m.bars) * 26)) : (opts.staffwidth || 980);
+    const w = scroll ? Math.max(900, m.bars * Math.min(380, Math.max(170, 40 + avgPerBar(marks, m.bars) * 20))) : (opts.staffwidth || 980);
     E.tune = SC.renderAbc(scoreEl, abc, { click: onClick, staffwidth: w, fixed: scroll });
     const c = document.createElement('div'); c.className = 'ed-cursor'; c.hidden = true; scoreEl.appendChild(c);
-    E.tl = null;
-    paintSel();
+    E.tl = null; E.els = null;
+    paintSel(); speedUI();
   }
+  // 음표 SVG 요소 찾기: 한 번 훑어 표를 만든다(음표마다 악보 전체를 뒤지지 않게)
+  function elsMap() {
+    if (E.els) return E.els;
+    const map = new Map();
+    scoreEl.querySelectorAll('.abcjs-note, .abcjs-rest').forEach(el => {
+      let v = null, mm = null, n = null;
+      for (const c of el.classList) { if (c.startsWith('abcjs-v')) v = c.slice(7); else if (c.startsWith('abcjs-mm')) mm = c.slice(8); else if (/^abcjs-n\d+$/.test(c)) n = c.slice(7); }
+      if (v != null && mm != null && n != null) { const k = v + ':' + mm + ':' + n; if (!map.has(k)) map.set(k, []); map.get(k).push(el); }
+    });
+    return (E.els = map);
+  }
+  const elsOf = m => elsMap().get(m.vi + ':' + m.bar + ':' + m.k) || [];
   const voiceOf = vi => E.model.voices[vi];
   function markAt(ch) {
     let lo = 0, hi = E.marks.length - 1, best = null;
@@ -58,7 +87,7 @@ export function createEditor(host, opts) {
   function paintSel() {
     scoreEl.querySelectorAll('.ed-on').forEach(e => e.classList.remove('ed-on'));
     const ms = selMarks();
-    ms.forEach(m => { scoreEl.querySelectorAll(`.abcjs-v${m.vi}.abcjs-mm${m.bar}.abcjs-n${m.k}`).forEach(e => e.classList.add('ed-on')); });
+    ms.forEach(m => { elsOf(m).forEach(e => e.classList.add('ed-on')); });
     label();
   }
   function label() {
@@ -157,15 +186,16 @@ export function createEditor(host, opts) {
     active = api;
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.view) return setView(b.dataset.view);
+    if (b.dataset.sp) return setSpeed(+b.dataset.sp);
     if (b.dataset.len) return setLen(+b.dataset.len);
     const a = b.dataset.e;
     if (a === 'undo') return undo();
-    if (a === 'playall') { opts.onPlay && opts.onPlay(0, b); if (SND.isPlaying()) follow(); else endFollow(); return; }
+    if (a === 'playall') { opts.onPlay && opts.onPlay(0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
     if (!E.sel && a !== 'play') return opts.toast && opts.toast('먼저 악보에서 음표를 눌러 골라요');
     if (a === 'up') pitch(1); if (a === 'down') pitch(-1);
     if (a === 'oup') pitch(12); if (a === 'odown') pitch(-12);
     if (a === 'del') del();
-    if (a === 'play') { const at = E.sel ? Math.floor((E.sel.ref ? E.sel.ref.s : E.sel.s) / C.BAR) * C.BAR : 0; opts.onPlay && opts.onPlay(at, b); if (SND.isPlaying()) follow(); else endFollow(); }
+    if (a === 'play') { const at = E.sel ? Math.floor((E.sel.ref ? E.sel.ref.s : E.sel.s) / C.BAR) * C.BAR : 0; opts.onPlay && opts.onPlay(at, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); }
   });
   host.addEventListener('pointerdown', () => { active = api; });
   function onKey(e) {
@@ -193,7 +223,7 @@ export function createEditor(host, opts) {
     const pts = new Map(), lines = new Map();
     const box = el => { const r = el.getBoundingClientRect(); return { x: r.left - cr.left + sl, y: r.top - cr.top + st, r: r.right - cr.left + sl, b: r.bottom - cr.top + st }; };
     E.marks.forEach(m => {
-      const el = scoreEl.querySelector(`.abcjs-v${m.vi}.abcjs-mm${m.bar}.abcjs-n${m.k}`); if (!el) return;
+      const el = elsOf(m)[0]; if (!el) return;
       const lc = [...el.classList].find(c => /^abcjs-l\d+$/.test(c)); const line = lc ? +lc.slice(7) : 0;
       const b = box(el); const cur = pts.get(m.q.s);
       if (!cur || b.x < cur.x) pts.set(m.q.s, { s: m.q.s, x: b.x, line });
@@ -204,7 +234,16 @@ export function createEditor(host, opts) {
       const line = +lc.slice(7), b = box(el), L = lines.get(line);
       if (!L) lines.set(line, { top: b.y, bot: b.b, right: b.r }); else { L.top = Math.min(L.top, b.y); L.bot = Math.max(L.bot, b.b); L.right = Math.max(L.right, b.r); }
     });
-    E.tl = { pts: [...pts.values()].sort((a, b) => a.s - b.s), lines };
+    // 강조할 음표: 시작 순서대로(재생 중에는 바뀐 것만 고친다)
+    const hl = E.marks.filter(m => m.el && m.q.p != null).map(m => ({ s: m.q.s, e: m.q.s + m.q.d, el: m.el })).sort((a, b) => a.s - b.s);
+    E.tl = { pts: [...pts.values()].sort((a, b) => a.s - b.s), lines, hl, k: 0, on: new Set(), last: -1 };
+  }
+  function highlight(pos) {
+    const T = E.tl;
+    if (pos < T.last) { T.on.forEach(x => x.el.classList.remove('ed-play')); T.on.clear(); T.k = 0; } // 뒤로 갔으면 처음부터
+    T.last = pos;
+    while (T.k < T.hl.length && T.hl[T.k].s <= pos) { const h = T.hl[T.k++]; if (pos < h.e) { h.el.classList.add('ed-play'); T.on.add(h); } }
+    T.on.forEach(h => { if (pos >= h.e) { h.el.classList.remove('ed-play'); T.on.delete(h); } });
   }
   function place(pos) {
     if (!E.tl) timeline();
@@ -218,11 +257,14 @@ export function createEditor(host, opts) {
     const x = a.x + (xEnd - a.x) * t;
     const c = cursor(); c.hidden = false;
     c.style.transform = `translate(${x - 1}px, ${L.top - 6}px)`; c.style.height = (L.bot - L.top + 12) + 'px';
-    // 지금 나는 음 강조
-    scoreEl.querySelectorAll('.ed-play').forEach(e => e.classList.remove('ed-play'));
-    E.marks.forEach(m => { if (m.el && m.q.p != null && m.q.s <= pos && pos < m.q.s + m.q.d) m.el.classList.add('ed-play'); });
+    // 지금 나는 음 강조(바뀐 음표만)
+    highlight(pos);
     // 화면 따라가기
-    if (E.view === 'scroll') { scoreEl.scrollLeft = Math.max(0, x - scoreEl.clientWidth * .3); }
+    if (E.view === 'scroll') {
+      const want = Math.max(0, Math.round(x - scoreEl.clientWidth * .3));
+      if (Math.abs(scoreEl.scrollLeft - want) >= 1) scoreEl.scrollLeft = want;
+      if (!E.shown) { E.shown = true; const r = scoreEl.getBoundingClientRect(); if (r.bottom < 80 || r.top > window.innerHeight - 80) scoreEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    }
     else if (E.lastLine !== a.line) {
       E.lastLine = a.line;
       const top = scoreEl.getBoundingClientRect().top + window.scrollY + L.top;
@@ -240,7 +282,7 @@ export function createEditor(host, opts) {
     host.classList.remove('following');
   }
   function follow() {
-    E.follow = true; E.lastLine = null; E.tl = null; host.classList.add('following');
+    E.follow = true; E.lastLine = null; E.tl = null; E.shown = false; host.classList.add('following');
     const tick = () => {
       if (!E.follow) return;
       const pos = SND.position();
@@ -253,6 +295,6 @@ export function createEditor(host, opts) {
     E.view = v; try { localStorage.setItem('livescore-view', v); } catch (x) { }
     const was = E.follow; render(); if (was) { E.tl = null; }
   }
-  const api = { render, onKey, midiPitch, follow, setView, clear: () => { E.sel = null; E.hist = []; }, host, get sel() { return E.sel; } };
+  const api = { render, onKey, midiPitch, follow, setView, clear: () => { E.sel = null; E.hist = []; }, host, get sel() { return E.sel; }, get speed() { return E.speed; } };
   return api;
 }

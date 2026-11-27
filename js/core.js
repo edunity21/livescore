@@ -135,7 +135,9 @@ export function lyricFlow(melody, lines, linesBars = 2) {
       k += take;
       map.set(n.id, { text: txt, kind: txt ? 'syl' : 'none', line: li, idx: k - take });
     });
-    report.push({ line: li, syl: syl.length, slots, notes: inLine.length, ok: syl.length === slots && syl.length > 0, extra: syl.slice(slots) });
+    // 노랫말도 음표도 없는 줄 = 반주만 나오는 마디(전주·간주·후주) → 맞은 줄로 본다
+    const rest = !syl.length && !inLine.length;
+    report.push({ line: li, syl: syl.length, slots, notes: inLine.length, ok: rest || (syl.length === slots && syl.length > 0), rest, extra: syl.slice(slots) });
   });
   return { map, report };
 }
@@ -262,7 +264,7 @@ export const GENRES = { pop: '밴드 팝', ballad: '발라드', rock: '록', aco
 export const MOODS = { bright: '밝게', calm: '잔잔하게', power: '힘차게' };
 export const INSTS = {
   drums: { name: '드럼', clef: 'perc', gm: 0, drum: true },
-  guitar: { name: '일렉기타', clef: 'treble', gm: 29 },
+  guitar: { name: '기타', clef: 'treble', gm: 29 },
   bass: { name: '베이스기타', clef: 'bass', gm: 33 },
   keys: { name: '키보드', clef: 'treble', gm: 4 },
   strings: { name: '스트링', clef: 'treble', gm: 48 },
