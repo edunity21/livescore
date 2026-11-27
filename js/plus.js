@@ -94,9 +94,9 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
   el.innerHTML = `<div class="kara-top"><div><b>${esc(title)}</b><small>${esc(sub)}</small></div>
     <div class="kara-ctl"><button type="button" data-k="song">▶ 노래와 반주</button><button type="button" data-k="mr">▶ 반주만(MR)</button><button type="button" data-k="stop">■ 멈춤</button><button type="button" data-k="close" aria-label="닫기">닫기 ✕</button></div></div>
     <div class="kara-mid"><p class="kara-count"></p><div class="kara-cur"></div><div class="kara-next"></div></div>
-    <div class="kara-bar"><i></i></div>`;
+    <p class="kara-msg"></p><div class="kara-bar"><i></i></div>`;
   document.body.appendChild(el); document.body.classList.add('kara-open');
-  const cur = el.querySelector('.kara-cur'), nxt = el.querySelector('.kara-next'), cnt = el.querySelector('.kara-count'), prog = el.querySelector('.kara-bar i');
+  const msg = el.querySelector('.kara-msg'), cur = el.querySelector('.kara-cur'), nxt = el.querySelector('.kara-next'), cnt = el.querySelector('.kara-count'), prog = el.querySelector('.kara-bar i');
   let li = -1, raf = null;
   const lineHtml = (L, i) => L ? `<p class="${L.chorus ? 'ch' : ''}" data-li="${i}">${L.syl.length ? L.syl.map((x, k) => `<span data-k="${k}">${esc(x.t)}</span>`).join('') : '<span class="rest">♪ 간주 ♪</span>'}</p>` : '';
   function show(i) {
@@ -123,9 +123,11 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars }) {
   }
   function play(withVoice) {
     SND.stop();
-    const tr = tracks(withVoice).map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD })) }));
+    const base = tracks(withVoice);
+    msg.textContent = !withVoice && !base.length ? '아직 반주가 없어요 — 6단계에서 편곡을 고르면 반주가 나와요. 지금은 박만 세어 줍니다.' : '';
+    const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD })) }));
     tr.push({ inst: 'click', notes: [0, 4, 8, 12].map(s => ({ p: s ? 84 : 96, s, d: 1 })), vol: .9 });
-    SND.play(tr, tempo, { onend: () => { cancelAnimationFrame(raf); cnt.textContent = ''; } });
+    SND.play(tr, tempo, { to: LEAD + bars * BAR, onend: () => { cancelAnimationFrame(raf); cnt.textContent = ''; } }); // 반주가 짧거나 없어도 곡 끝까지
     cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
   }
   function close() { cancelAnimationFrame(raf); SND.stop(); el.remove(); document.body.classList.remove('kara-open'); document.removeEventListener('keydown', key); }

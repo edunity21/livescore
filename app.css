@@ -569,6 +569,7 @@ body.kara-open{overflow:hidden}
 .kara-cur .rest{color:rgba(255,255,255,.5);font-size:.6em}
 .kara-next p{font-size:clamp(20px,3.2vw,46px);font-weight:700;color:rgba(255,255,255,.38)}
 .kara-next span{color:inherit}
+.kara-msg{text-align:center;color:#E9D3AE;font-size:15px;min-height:1.6em;margin-bottom:10px}
 .kara-bar{height:6px;background:rgba(255,255,255,.12);border-radius:3px;overflow:hidden}
 .kara-bar i{display:block;height:100%;width:0;background:var(--gold)}
 @media print{.kara{display:none!important}}
