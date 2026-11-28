@@ -1,17 +1,17 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=17';
-import * as SND from './sound.js?v=17';
-import * as MIDI from './midi.js?v=17';
-import * as SC from './score.js?v=17';
-import * as HUM from './hum.js?v=17';
+import * as C from './core.js?v=18';
+import * as SND from './sound.js?v=18';
+import * as MIDI from './midi.js?v=18';
+import * as SC from './score.js?v=18';
+import * as HUM from './hum.js?v=18';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=17';
-import * as PLUS from './plus.js?v=17';
-import * as ORCH from './orch.js?v=17';
-import * as CAM from './cam.js?v=17';
-import * as A2S from './a2s.js?v=17';
-import * as A2Q from './a2q.js?v=17';
-import * as MXL from './mxl.js?v=17';
+import { createEditor, activeEditor } from './editor.js?v=18';
+import * as PLUS from './plus.js?v=18';
+import * as ORCH from './orch.js?v=18';
+import * as CAM from './cam.js?v=18';
+import * as A2S from './a2s.js?v=18';
+import * as A2Q from './a2q.js?v=18';
+import * as MXL from './mxl.js?v=18';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -1642,6 +1642,7 @@ const ed8 = createEditor($('#ed8'), {
 });
 const info8 = () => `${totalBars()}마디 · 가사 · 코드 · 파트 ${fullVoices(S.melody).voices.length} · 음표를 눌러 바로 고쳐요`;
 function r8() {
+  fitBars();
   ed8.render(); keyCtl($('#etKey8'), S.key);
   $('#scoreInfo').textContent = info8(); $('#h8score').textContent = isOrch() ? '관현악 총보' : chosen() ? '밴드 총보' : '노래 악보';
   const v = chosen();
@@ -1735,17 +1736,35 @@ $('#playFinal').onclick = e => {
   playWith(e.currentTarget, verTracks({ parts: finalParts().parts }, S.melody));
   if (SND.isPlaying()) ed8.follow();
 };
+// 고친 선율(노래 마디 수)에 맞춰 합주를 새로 짠다 — 자동 편곡은 그 설정 그대로, 수노 편곡은 지금 편성·장르로
+function makeNv(v) {
+  const auto = v.source === 'auto', st = auto ? v.settings : { ...clone(S.arr.settings), intro: Math.min(4, sunoIntro(v) || S.arr.settings.intro || 2) };
+  const r = C.arrange(S.melody, S.lyrics, S.key, st, auto ? v.variant : 0, auto && v.userChords ? v.chords : null);
+  S.arr.nv = { of: v.id, parts: r.parts, chords: r.chords, intro: r.intro, sections: r.sections, bars: r.bars, mel: melSig() };
+  syncNv(); return r;
+}
+const melSig = () => S.melody.length + ':' + S.melody.reduce((a, n) => (a * 31 + n.s * 7 + n.d * 3 + (n.p || 0)) % 1000003, 7) + ':' + S.lyrics.length + ':' + C.METER.key + C.METER.lineBars;
+// 노래와 합주의 마디 수가 어긋나면(선율·가사를 고쳐 노래가 늘거나 줄면) 자동 편곡은 노래에 맞춰 다시 짠다
+function fitBars() {
+  const v = chosen(); if (!v || v.source !== 'auto') return false;
+  const nv = S.arr.nv && S.arr.nv.of === v.id ? S.arr.nv : null, want = totalBars();
+  const have = nv ? (nv.bars || want) : v.bars;
+  if (have === want) return false;
+  makeNv(v); save(); toast(`노래 ${want}마디에 맞춰 합주도 ${want}마디로 다시 맞췄어요`); return true;
+}
 $('#newVer').onclick = () => {
-  const v = chosen(), box = $('#newVerBox'); box.hidden = false;
-  if (!v) { box.innerHTML = '<p>6단계에서 편곡을 먼저 골라 주세요.</p>'; return; }
-  if (v.source === 'auto') {
-    const r = C.arrange(S.melody, S.lyrics, S.key, v.settings, v.variant, v.userChords ? v.chords : null);
-    S.arr.nv = { of: v.id, parts: r.parts, chords: r.chords, intro: r.intro, sections: r.sections }; syncNv(); save(); r8();
-    box.innerHTML = `<p><b>고친 선율에 맞춰 반주를 다시 만들었어요.</b> 위의 <b>▶ 고친 뒤 새 버전</b>과 <b>▶ 처음 버전</b>을 차례로 들어 보세요.</p>`;
-  } else {
-    box.innerHTML = `<ol class="howto"><li><b>노래 선율 MP3</b>로 고친 선율을 받아요.</li><li>수노 <b>Create → Upload Audio</b>에 올리고 <b>Cover</b>로 같은 장르·분위기의 새 버전을 만들어요.</li><li>새로 받은 음원을 여기에 올려 처음 버전과 비교해 들어요.</li></ol><label class="ctl file"><span>새 버전 음원</span><input type="file" accept="audio/*" id="nvAudio"></label><div id="nvPlayer"></div>`;
-    $('#nvAudio').onchange = ev => { const f = ev.target.files[0]; if (!f) return; $('#nvPlayer').innerHTML = `<audio controls src="${URL.createObjectURL(f)}"></audio>`; };
+  let v = chosen(); const box = $('#newVerBox'); box.hidden = false;
+  if (!v && S.arr.versions.length) { S.arr.chosen = S.arr.versions[0].id; v = chosen(); if (!S.base) S.base = clone(S.melody); toast(`고른 편곡이 없어 ${v.id} 편곡으로 만들어요`); }
+  if (!v) {
+    if (!S.melody.length) { box.innerHTML = '<p>먼저 3단계에서 선율을 만들어 주세요.</p>'; return; }
+    $('#genArr').onclick(); v = S.arr.versions[0]; if (!v) { box.innerHTML = '<p>6단계 편성에서 악기를 하나 이상 골라 주세요.</p>'; return; }
+    S.arr.chosen = v.id; S.base = clone(S.melody);
   }
+  const r = makeNv(v); save(); r8();
+  box.innerHTML = `<p><b>고친 선율(노래 ${totalBars()}마디)에 맞춰 합주 ${r.bars}마디를 새로 만들었어요.</b> 위의 <b>▶ 고친 뒤 새 버전</b>과 <b>▶ 처음 버전</b>을 차례로 들어 보세요. 악보에도 새 합주가 들어갔어요.</p>` +
+    (v.source === 'auto' ? '' : `<details><summary>수노로 새 음원까지 만들려면</summary><ol class="howto"><li><b>노래 선율 MP3</b>로 고친 선율을 받아요.</li><li>수노 <b>Create → Upload Audio</b>에 올리고 <b>Cover</b>로 같은 장르·분위기의 새 버전을 만들어요.</li><li>새로 받은 음원을 여기에 올려 처음 버전과 비교해 들어요.</li></ol><label class="ctl file"><span>새 버전 음원</span><input type="file" accept="audio/*" id="nvAudio"></label><div id="nvPlayer"></div></details>`);
+  const au = $('#nvAudio'); if (au) au.onchange = ev => { const f = ev.target.files[0]; if (!f) return; $('#nvPlayer').innerHTML = `<audio controls src="${URL.createObjectURL(f)}"></audio>`; };
+  toast(`새 버전 합주 ${r.bars}마디를 만들었어요`);
 };
 
 // ── 태블릿으로 보기(QR) ──

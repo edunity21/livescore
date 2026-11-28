@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, LINE, KEYS, MAJOR, pc, chordTones, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=17';
+import { BAR, LINE, KEYS, MAJOR, pc, chordTones, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=18';
 
 // ── 박자 도우미 ── 4/4는 예전 무늬 그대로, 다른 박자(홑·겹·혼합)는 박·묶음에 맞춰 만든다
 const H2 = c => is44() ? (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]) : (c.d >= BAR ? groupSplit(c.d) : [[0, c.d]]); // 반 마디씩 → 묶음씩
