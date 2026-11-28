@@ -976,7 +976,7 @@ function ensUI() {
   const cats = Object.entries(ORCH.ENS_CATS).map(([cat, label]) => {
     const ks = keys.filter(k => ORCH.ENS[k].cat === cat); if (!ks.length) return '';
     const on = ks.reduce((a, k) => a + (e[k] || 0), 0);
-    return `<div class="ens-cat"><h3>${label}${on ? `<small>${on}명</small>` : ''}</h3><div class="ens">${ks.map(k => { const info = ORCH.ENS[k], n = e[k] || 0; return `<div class="ens-i ${n ? 'on' : ''}" data-ens="${k}"><b>${info.name}${info.trans ? `<i class="ens-tr" title="이조 악기 — 파트보는 기보음으로 인쇄">${info.trans === 9 ? 'E♭' : 'B♭'}</i>` : ''}</b><span class="ens-st"><button type="button" data-d="-1" aria-label="${info.name} 줄이기">−</button><output>${n}</output><button type="button" data-d="1" aria-label="${info.name} 늘리기">+</button></span><small>${ENS_NOTE[k] || ''} · 최대 ${info.max}명</small></div>`; }).join('')}</div></div>`;
+    return `<div class="ens-cat"><h3>${label}${on ? `<small>${on}명</small>` : ''}</h3><div class="ens">${ks.map(k => { const info = ORCH.ENS[k], n = e[k] || 0; return `<div class="ens-i ${n ? 'on' : ''}" data-ens="${k}"><b>${info.name}${info.trans ? `<i class="ens-tr" title="이조 악기 — 파트보는 기보음으로 인쇄">${({ 9: 'E♭', 7: 'F', 2: 'B♭' })[info.trans] || 'B♭'}</i>` : ''}</b><span class="ens-st"><button type="button" data-d="-1" aria-label="${info.name} 줄이기">−</button><output>${n}</output><button type="button" data-d="1" aria-label="${info.name} 늘리기">+</button></span><small>${ENS_NOTE[k] || ''} · 최대 ${info.max}명</small></div>`; }).join('')}</div></div>`;
   }).join('');
   $('#ensBox').innerHTML = cats;
   const total = keys.reduce((a, k) => a + (e[k] || 0), 0), staves = (e.vocal ? 1 : 0) + ORCH.ENS_ORDER.reduce((a, k) => a + staffN(k, e[k]), 0);
