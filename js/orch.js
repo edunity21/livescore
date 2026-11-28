@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=10';
+import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=11';
 
 // cat: 편성 칸 묶음 · disp: 적는 음 옥타브(리코더는 한 옥타브 아래로 적는다) · trans: 이조 악기(기보음 = 실음 + trans, 파트보에서 쓴다)
 export const ENS = {
@@ -14,22 +14,39 @@ export const ENS = {
   sax: { name: '알토 색소폰', sub: 'A.Sax', max: 4, range: [51, 75], gm: 65, snd: 'sax', clef: 'treble', divisi: 2, trans: 9, cat: 'wind' },
   trumpet: { name: '트럼펫', sub: 'Tpt.', max: 4, range: [58, 79], gm: 56, snd: 'trumpet', clef: 'treble', divisi: 2, trans: 2, cat: 'wind' },
   trombone: { name: '트롬본', sub: 'Tbn.', max: 4, range: [43, 67], gm: 57, snd: 'brass', clef: 'bass', divisi: 2, cat: 'wind' },
+  oboe: { name: '오보에', sub: 'Ob.', max: 3, range: [58, 86], gm: 68, snd: 'reed', clef: 'treble', divisi: 2, cat: 'wind' },
+  bassoon: { name: '바순', sub: 'Bsn.', max: 3, range: [34, 65], gm: 70, snd: 'reed', clef: 'bass', divisi: 2, cat: 'wind' },
+  horn: { name: '호른', sub: 'Hn.', max: 4, range: [41, 72], gm: 60, snd: 'brass', clef: 'treble', divisi: 2, trans: 7, cat: 'wind' },
   violin: { name: '바이올린', sub: 'Vn.', max: 8, range: [55, 88], gm: 40, snd: 'violin', clef: 'treble', divisi: 2, cat: 'string' },
+  violin2: { name: '바이올린 2', sub: 'Vn. 2', max: 8, range: [55, 81], gm: 40, snd: 'violin', clef: 'treble', divisi: 2, cat: 'string' },
+  viola: { name: '비올라', sub: 'Va.', max: 6, range: [48, 74], gm: 41, snd: 'violin', clef: 'alto', divisi: 2, cat: 'string' },
   strings: { name: '스트링', sub: 'Str.', max: 12, range: [55, 84], gm: 48, snd: 'strings', clef: 'treble', divisi: 3, cat: 'string' },
   cello: { name: '첼로', sub: 'Vc.', max: 4, range: [36, 64], gm: 42, snd: 'cello', clef: 'bass', cat: 'string' },
+  contrabass: { name: '콘트라베이스', sub: 'Cb.', max: 3, range: [28, 52], gm: 43, snd: 'cello', clef: 'bass', cat: 'string' },
+  harp: { name: '하프', sub: 'Hp.', max: 1, range: [36, 91], gm: 46, snd: 'harp', cat: 'string' },
   guitar: { name: '기타', sub: 'Gtr.', max: 2, range: [40, 76], gm: 27, snd: 'guitar', clef: 'treble-8', cat: 'band' },
   uke: { name: '우쿨렐레', sub: 'Uke', max: 30, range: [60, 79], gm: 24, snd: 'uke', clef: 'treble', cat: 'band' },
   keys: { name: '키보드', sub: 'Kbd.', max: 1, gm: 0, snd: 'keys', cat: 'band' },
   bass: { name: '베이스기타', sub: 'B.', max: 1, range: [28, 55], gm: 33, snd: 'bass', clef: 'bass', cat: 'band' },
   mallet: { name: '실로폰', sub: 'Xyl.', max: 4, range: [65, 93], gm: 13, snd: 'mallet', clef: 'treble', cat: 'perc' },
+  timpani: { name: '팀파니', sub: 'Timp.', max: 1, range: [41, 57], gm: 47, snd: 'timp', clef: 'bass', cat: 'perc' },
   drums: { name: '드럼', sub: 'Dr.', max: 1, snd: 'drums', clef: 'perc', cat: 'perc' },
   cajon: { name: '카혼', sub: 'Caj.', max: 2, snd: 'drums', clef: 'perc', cat: 'perc' },
   tamb: { name: '탬버린', sub: 'Tamb.', max: 4, snd: 'drums', clef: 'perc', cat: 'perc' },
 };
 export const ENS_CATS = { voice: '노래', wind: '관악기', string: '현악기', band: '기타 · 건반 · 베이스', perc: '타악기' };
 // 총보 순서: 목관 → 금관 → 현 → 리듬 섹션 → 타악기
-export const ENS_ORDER = ['flute', 'recorder', 'clarinet', 'sax', 'trumpet', 'trombone', 'violin', 'strings', 'cello', 'guitar', 'uke', 'keys', 'bass', 'mallet', 'drums', 'cajon', 'tamb'];
-export const defaultEns = () => ({ vocal: 4, flute: 0, recorder: 0, clarinet: 0, sax: 0, trumpet: 0, trombone: 0, violin: 0, strings: 0, cello: 0, guitar: 1, uke: 0, keys: 1, bass: 1, mallet: 0, drums: 1, cajon: 0, tamb: 0 });
+export const ENS_ORDER = ['flute', 'recorder', 'oboe', 'clarinet', 'bassoon', 'sax', 'horn', 'trumpet', 'trombone', 'violin', 'violin2', 'strings', 'viola', 'cello', 'contrabass', 'harp', 'guitar', 'uke', 'keys', 'bass', 'timpani', 'mallet', 'drums', 'cajon', 'tamb'];
+// 관현악 총보 순서: 목관 → 금관 → 팀파니·타악기 → 하프 → 건반 → 현악(맨 아래)
+export const ORCH_ORDER = ['flute', 'recorder', 'oboe', 'clarinet', 'bassoon', 'sax', 'horn', 'trumpet', 'trombone', 'timpani', 'mallet', 'drums', 'cajon', 'tamb', 'harp', 'guitar', 'uke', 'keys', 'bass', 'violin', 'violin2', 'strings', 'viola', 'cello', 'contrabass'];
+export const defaultEns = () => ({ vocal: 4, flute: 0, recorder: 0, oboe: 0, clarinet: 0, bassoon: 0, sax: 0, horn: 0, trumpet: 0, trombone: 0, violin: 0, violin2: 0, strings: 0, viola: 0, cello: 0, contrabass: 0, harp: 0, guitar: 1, uke: 0, keys: 1, bass: 1, timpani: 0, mallet: 0, drums: 1, cajon: 0, tamb: 0 });
+// 미리 짜 둔 편성
+export const PRESETS = {
+  band: { name: '밴드', ens: defaultEns(), genre: 'pop' },
+  orch: { name: '관현악(학교 오케스트라)', genre: 'orch', ens: { vocal: 4, flute: 2, oboe: 1, clarinet: 2, bassoon: 1, horn: 2, trumpet: 2, trombone: 1, timpani: 1, harp: 1, violin: 6, violin2: 6, viola: 4, cello: 3, contrabass: 1, guitar: 0, keys: 0, bass: 0, drums: 0 } },
+  chamber: { name: '현악 합주 + 피아노', genre: 'orch', ens: { vocal: 4, violin: 4, violin2: 4, viola: 2, cello: 2, contrabass: 1, keys: 1, guitar: 0, bass: 0, drums: 0 } },
+  class: { name: '학급 합주(리코더·우쿨렐레)', genre: 'acoustic', ens: { vocal: 20, recorder: 8, uke: 8, mallet: 2, keys: 1, guitar: 0, bass: 0, drums: 0, cajon: 1, tamb: 2 } },
+};
 const HANDS = ['crash', 'snare', 'tom', 'ride', 'hat']; // 드러머의 두 손: 앞쪽이 먼저
 
 // ── 작은 도구 ──
@@ -64,7 +81,7 @@ function below3(p, tonic) { // 음계를 따라 3도 아래
   return q;
 }
 const secOf = (sections, s) => { let cur = sections[0] || { name: 'Verse', s: 0 }; for (const x of sections) if (x.s <= s) cur = x; return cur; };
-const kindOf = name => (/^Intro/.test(name) ? 'intro' : /^Chorus/.test(name) ? 'chorus' : 'verse');
+const kindOf = name => (/^(Intro|Interlude|Outro)/.test(name) ? 'intro' : /^Chorus/.test(name) ? 'chorus' : 'verse');
 
 // ── 드럼: 한 사람(두 손 + 큰북) ──
 export function kitOf(p) {
@@ -379,7 +396,99 @@ export function orchestrate(o) {
     const hits = patHits((k, last) => last ? [[0, ['tamb']]] : k === mainK ? [[4, ['tamb']], [12, ['tamb']]] : []);
     add('tamb', info, percNotes(hits), { drum: true, players: ens.tamb });
   }
-  const ORD = Object.fromEntries(ENS_ORDER.map((k, i) => [k, i]));
-  const keyOf = id => ({ rec: 'recorder', cl: 'clarinet', sax: 'sax', tpt: 'trumpet', tbn: 'trombone', vn: 'violin', str: 'strings', vc: 'cello', gtr1: 'guitar', gtr2: 'guitar', uke: 'uke', kbdR: 'keys', kbdL: 'keys', bass: 'bass', xyl: 'mallet', drums: 'drums', caj: 'cajon', tamb: 'tamb', flute: 'flute' }[id]);
+  // ── 관현악 악기 ──
+  const pads = (range, n, when) => { // 화음을 길게(사람 수만큼 성부) — when(k): 그 구간에서 울릴지
+    const ns = []; let prev = null;
+    chords.forEach(c => {
+      const k = c.s === lastS ? 'end' : kindAt(c.s); if (!when(k)) return;
+      const v = closeVoicing(chordTones(c, tonic), prev, range[0], range[1], Math.max(1, n)); prev = v.length >= 3 ? v : prev;
+      ns.push({ p: v[v.length - 1], s: c.s, d: c.d, chord: v.length > 1 ? v : undefined });
+    });
+    return ns;
+  };
+  // 오보에: 벌스는 길잡이음 대선율, 주 구간은 노래를 같은 높이로(플루트가 있으면 대선율만)
+  if (ens.oboe > 0) {
+    const info = ENS.oboe, n = Math.min(ens.oboe, info.divisi);
+    const cm = guide(info.range, c => (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]), n).filter(x => kindAt(x.s) === 'verse' || (ens.flute > 0 && kindAt(x.s) === mainK));
+    const mel = ens.flute > 0 ? [] : octFit(melIn(mainK), info.range);
+    add('ob', info, easy(mono([...cm, ...mel])), { players: ens.oboe, tech: [{ s: start, text: 'dolce' }] });
+  }
+  // 바순: 근음을 길게(벌스) · 주 구간은 근음과 5음으로 걸어 다님
+  if (ens.bassoon > 0) {
+    const info = ENS.bassoon, ns = [];
+    chords.forEach(c => {
+      const r = fit(pc(tonic + c.r), 41, 52), k = c.s === lastS ? 'end' : kindAt(c.s);
+      const pat = k === mainK && c.d >= 16 ? [[0, 8, r], [8, 8, r + 7]] : [[0, c.d, r]];
+      if (k === 'intro' && ens.cello > 0) return;
+      pat.forEach(([u, d, q]) => ns.push({ p: fit(q, ...info.range), s: c.s + u, d }));
+    });
+    add('bsn', info, mono(ns), { players: ens.bassoon });
+  }
+  // 호른: 화음을 길게 — 전주·주 구간·끝(벌스는 쉬어 소리를 쌓아 간다)
+  if (ens.horn > 0) {
+    const info = ENS.horn, n = Math.min(ens.horn, info.divisi);
+    add('hn', info, pads([53, 70], n, k => k !== 'verse'), { players: ens.horn, tech: [{ s: start, text: 'cantabile' }] });
+  }
+  // 바이올린 2: 벌스는 피치카토 4분음표 화음음, 주 구간은 활로 길게 안쪽 화음
+  if (ens.violin2 > 0) {
+    const info = ENS.violin2, n = Math.min(ens.violin2, info.divisi), ns = []; let prev = null;
+    chords.forEach(c => {
+      const k = c.s === lastS ? 'end' : kindAt(c.s), v = closeVoicing(chordTones(c, tonic), prev, 60, 76, 3); prev = v;
+      if (k === 'verse') { for (let u = 0, i = 0; u < c.d; u += 4, i++) ns.push({ p: v[[0, 1, 2, 1][i % 4]], s: c.s + u, d: 4 }); }
+      else { const top = n > 1 ? [v[1], v[2]] : [v[1]]; ns.push({ p: top[top.length - 1], s: c.s, d: c.d, chord: top.length > 1 ? top : undefined }); }
+    });
+    const tech = sections.map(x => ({ s: x.s, text: kindOf(x.name) === 'verse' ? 'pizz.' : 'arco' }));
+    add('vn2', info, mono(ns).map(x => { const o = ns.find(z => z.s === x.s && z.p === x.p); return o && o.chord ? { ...x, chord: o.chord } : x; }), { players: ens.violin2, tech });
+  }
+  // 비올라: 안쪽 성부 — 화음의 5음·3음을 길게 잇는다
+  if (ens.viola > 0) {
+    const info = ENS.viola, ns = []; let prev = 62;
+    chords.forEach(c => {
+      const t = chordTones(c, tonic), g = nearest(tonesIn([t[2], t[1]], 55, 69), prev) ?? nearest(tonesIn(t, 55, 69), prev); if (g == null) return; prev = g;
+      const k = c.s === lastS ? 'end' : kindAt(c.s);
+      (k === mainK && c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: g, s: c.s + u, d }));
+    });
+    add('va', info, mono(ns), { players: ens.viola });
+  }
+  // 콘트라베이스: 근음(악보는 한 옥타브 위로) — 벌스 피치카토 2분음표, 주 구간·끝은 활로 길게
+  if (ens.contrabass > 0) {
+    const info = ENS.contrabass, ns = [];
+    chords.forEach(c => {
+      const r = fit(pc(tonic + c.r), 28, 40), k = c.s === lastS ? 'end' : kindAt(c.s);
+      (k === 'verse' && c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d }));
+    });
+    const tech = sections.map(x => ({ s: x.s, text: kindOf(x.name) === 'verse' ? 'pizz.' : 'arco' }));
+    add('cb', info, mono(ns), { players: ens.contrabass, disp: 12, tech });
+  }
+  // 하프: 큰보표 — 오른손 화음 펼침(8분음표 오르내림), 왼손 근음·5음
+  if (ens.harp > 0) {
+    const info = ENS.harp, R = [], L = [];
+    chords.forEach(c => {
+      const t = chordTones(c, tonic), r = fit(t[0], 60, 71), seq = [r, fit(t[1], r, r + 11), fit(t[2], r, r + 11), r + 12];
+      const k = c.s === lastS ? 'end' : kindAt(c.s), root = fit(pc(tonic + c.r), 36, 47);
+      L.push({ p: root, s: c.s, d: c.d, chord: c.d >= 8 ? [root, root + 7] : undefined });
+      if (k === 'end') { R.push({ p: seq[3], s: c.s, d: c.d, chord: seq.slice(0, 4) }); return; }
+      if (k === mainK) { [0, 8].forEach(u => { if (u < c.d) R.push({ p: seq[3], s: c.s + u, d: Math.min(8, c.d - u), chord: seq.slice(0, 4) }); }); return; }
+      const ord = [0, 1, 2, 3, 2, 1, 2, 3];
+      for (let u = 0, i = 0; u < c.d; u += 2, i++) R.push({ p: seq[ord[i % 8]], s: c.s + u, d: 2 });
+    });
+    add('hpR', info, R, { clef: 'treble', group: 'harp', tech: [{ s: start, text: 'arpeggio' }] });
+    add('hpL', info, L, { clef: 'bass', group: 'harp', name: '', sub: '' });
+  }
+  // 팀파니: 으뜸음·딸림음 두 북 — 구간 첫 박에 치고, 전주 끝과 곡 끝은 굴림(roll)
+  if (ens.timpani > 0) {
+    const info = ENS.timpani, I = fit(tonic, 43, 54), V = fit(tonic + 7, 41, 55), ns = [], tech = [];
+    const firstOf = new Set(sections.map(x => x.s));
+    chords.forEach(c => {
+      const isV = c.r === 7 || c.r === 11, p = isV ? V : I, k = c.s === lastS ? 'end' : kindAt(c.s);
+      if (k === 'end') { ns.push({ p: I, s: c.s, d: c.d }); tech.push({ s: c.s, text: 'roll' }); return; }
+      if (firstOf.has(c.s) || (k === mainK && (((c.s % (BAR * 2)) + BAR * 2) % (BAR * 2)) === 0)) ns.push({ p, s: c.s, d: Math.min(4, c.d) });
+    });
+    const introEnd = sections.find(x => kindOf(x.name) !== 'intro');
+    if (introEnd && introEnd.s > start) { ns.push({ p: V, s: introEnd.s - 4, d: 4 }); tech.push({ s: introEnd.s - 4, text: 'roll' }); }
+    add('timp', info, mono(ns), { tech: [{ s: start, text: `${['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'][pc(I)]}·${['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'][pc(V)]}` }, ...tech] });
+  }
+  const ORD = Object.fromEntries((genre === 'orch' ? ORCH_ORDER : ENS_ORDER).map((k, i) => [k, i]));
+  const keyOf = id => ({ rec: 'recorder', cl: 'clarinet', sax: 'sax', tpt: 'trumpet', tbn: 'trombone', vn: 'violin', str: 'strings', vc: 'cello', gtr1: 'guitar', gtr2: 'guitar', uke: 'uke', kbdR: 'keys', kbdL: 'keys', bass: 'bass', xyl: 'mallet', drums: 'drums', caj: 'cajon', tamb: 'tamb', flute: 'flute', ob: 'oboe', bsn: 'bassoon', hn: 'horn', vn2: 'violin2', va: 'viola', cb: 'contrabass', hpR: 'harp', hpL: 'harp', timp: 'timpani' }[id]);
   return parts.map((p, i) => ({ p, i })).sort((a, b) => (ORD[keyOf(a.p.id)] ?? 99) - (ORD[keyOf(b.p.id)] ?? 99) || a.i - b.i).map(x => x.p);
 }

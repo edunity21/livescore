@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=10';
+import { BAR } from './core.js?v=11';
 
 let ctx = null, master = null;
 export function audio() {
@@ -97,6 +97,17 @@ export function voice(c, out, inst, p, t, dur, vel = .8) {
       const o = osc('sine', f), o2 = osc('sine', f * 3.9), g2 = c.createGain(); g2.gain.setValueAtTime(.25, t); g2.gain.exponentialRampToValueAtTime(.001, t + .06); o2.connect(g2); g2.connect(g);
       o.connect(g); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.4 * vel, t + .002); g.gain.setTargetAtTime(0, t + .002, .09); relT = .05; nodes = [o, o2]; break;
     }
+    case 'harp': { // 하프: 맑게 튕기고 길게 울림
+      const o = osc('triangle', f), o2 = osc('sine', f * 2, 3), g2 = c.createGain(); g2.gain.setValueAtTime(.3, t); g2.gain.setTargetAtTime(.05, t, .15); o2.connect(g2); g2.connect(g);
+      o.connect(g); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.34 * vel, t + .003); g.gain.setTargetAtTime(0, t + .003, .7); relT = .3; nodes = [o, o2]; break;
+    }
+    case 'timp': { // 팀파니: 낮은 북 소리(음높이 있음)
+      const o = osc('sine', f), o2 = osc('sine', f * 1.5, -8), g2 = c.createGain(); g2.gain.value = .25; o2.connect(g2); g2.connect(g);
+      o.frequency.setValueAtTime(f * 1.04, t); o.frequency.exponentialRampToValueAtTime(f, t + .08);
+      const nb = c.createBuffer(1, Math.floor(c.sampleRate * .08), c.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+      const ns = c.createBufferSource(); ns.buffer = nb; const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; const gn = c.createGain(); gn.gain.value = .5 * vel; ns.connect(lp); lp.connect(gn); gn.connect(out); ns.start(t);
+      o.connect(g); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.7 * vel, t + .006); g.gain.setTargetAtTime(0, t + .006, .45); relT = .3; nodes = [o, o2]; break;
+    }
     case 'voice': {
       const o = osc('triangle', f), o2 = osc('sine', f * 2), lfo = osc('sine', 5.5), lg = c.createGain(); lg.gain.value = f * .005;
       const g2 = c.createGain(); g2.gain.value = .18; o2.connect(g2); g2.connect(g);
@@ -179,7 +190,7 @@ export function click(t, accent) {
 
 // ── 재생 ──
 // tracks: [{inst:'voice'|'keys'|..|'drum', notes:[{p,s,d,chord?,kit?}], vol}]
-const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys', strings: 'strings', flute: 'flute', brass: 'brass', melody: 'voice', recorder: 'recorder', reed: 'reed', sax: 'sax', trumpet: 'trumpet', violin: 'violin', cello: 'cello', uke: 'uke', mallet: 'mallet' };
+const INST_SOUND = { drums: 'drum', guitar: 'guitar', bass: 'bass', keys: 'keys', strings: 'strings', flute: 'flute', brass: 'brass', melody: 'voice', recorder: 'recorder', reed: 'reed', sax: 'sax', trumpet: 'trumpet', violin: 'violin', cello: 'cello', uke: 'uke', mallet: 'mallet', harp: 'harp', timp: 'timp' };
 export function soundOf(id) { return INST_SOUND[id] || 'keys'; }
 const DRUMP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45, tamb: 54 };
 

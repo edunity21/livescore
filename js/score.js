@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=10';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=11';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -238,7 +238,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
       x += `    <measure number="${num}"${!intro && b < 0 ? ' implicit="yes"' : ''}>\n`;
       if (i === 0 && secAt.has(b)) x += `      <direction placement="above"><direction-type><rehearsal enclosure="rectangle">${esc(secAt.get(b))}</rehearsal></direction-type></direction>\n`;
       if (b === b0) {
-        const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';
+        const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'alto' ? '<sign>C</sign><line>3</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';
         const tx = disp || tr ? `<transpose><diatonic>${-(7 * disp / 12 + (DIA[tr] ?? Math.round(tr * 7 / 12)))}</diatonic><chromatic>${-(disp + tr)}</chromatic></transpose>` : '';
         x += `      <attributes><divisions>4</divisions><key><fifths>${pk.fifths}</fifths><mode>major</mode></key><time><beats>4</beats><beat-type>4</beat-type></time><clef>${clef}</clef>${tx}</attributes>\n`;
         if (i === 0) x += `      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>\n`;
@@ -280,7 +280,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
           let ly = '';
           if (j === 0 && p.lyrics && !q.tiePrev) {
             const m = p.lyrics.map.get(q.ref.id);
-            if (m && m.kind === 'syl' && m.text) ly = `<lyric number="1"><syllabic>single</syllabic><text>${esc(m.text)}</text></lyric>`;
+            if (m && m.kind === 'syl' && m.text) { const sb = m.wStart === false ? (m.wEnd === false ? 'middle' : 'end') : (m.wEnd === false ? 'begin' : 'single'); ly = `<lyric number="1"><syllabic>${sb}</syllabic><text>${esc(m.text)}</text></lyric>`; }
             else if (m && m.kind === 'ext') ly = `<lyric number="1"><extend/></lyric>`;
           }
           x += `      <note>${j ? '<chord/>' : ''}<pitch><step>${sp.L}</step>${sp.alt ? `<alter>${sp.alt}</alter>` : ''}<octave>${sp.oct}</octave></pitch><duration>${q.d}</duration>${tie}<voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}${notations}${ly}</note>\n`;

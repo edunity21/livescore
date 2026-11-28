@@ -162,6 +162,7 @@ export function lyricFlow(melody, lines, linesBars = 2) {
   lines.forEach((line, li) => {
     const syl = syllables(line.text);
     const inLine = sorted.filter(n => n.s >= li * span - P && n.s < (li + 1) * span - P);
+    const brk = []; { let j = -1; for (const ch of line.text || '') { if (/[\p{L}\p{N}]/u.test(ch)) { j++; brk[j] = false; } else if (j >= 0 && /\s/.test(ch)) brk[j] = true; } } // 낱말 끝(띄어쓰기 앞) 글자
     let k = 0, slots = 0;
     inLine.forEach((n, i) => {
       if (n.lx === 'e' && i > 0) { map.set(n.id, { text: '', kind: 'ext', line: li }); return; }
@@ -170,7 +171,8 @@ export function lyricFlow(melody, lines, linesBars = 2) {
       slots += take;
       const txt = syl.slice(k, k + take).join('');
       k += take;
-      map.set(n.id, { text: txt, kind: txt ? 'syl' : 'none', line: li, idx: k - take });
+      const i0 = k - take, i1 = Math.min(syl.length, k) - 1;
+      map.set(n.id, { text: txt, kind: txt ? 'syl' : 'none', line: li, idx: i0, wStart: i0 === 0 || !!brk[i0 - 1], wEnd: i1 >= syl.length - 1 || !!brk[i1] });
     });
     // 노랫말도 음표도 없는 줄 = 반주만 나오는 마디(전주·간주·후주) → 맞은 줄로 본다
     const rest = !syl.length && !inLine.length;
@@ -367,7 +369,7 @@ export function voicing(ch, tonic, center = 64, size = 3) {
 }
 
 // ── 자동 편곡 ──
-export const GENRES = { pop: '밴드 팝', ballad: '발라드', rock: '록', acoustic: '어쿠스틱', dance: '댄스', hiphop: '힙합' };
+export const GENRES = { pop: '밴드 팝', ballad: '발라드', rock: '록', acoustic: '어쿠스틱', dance: '댄스', hiphop: '힙합', orch: '오케스트라' };
 export const MOODS = { bright: '밝게', calm: '잔잔하게', power: '힘차게' };
 export const INSTS = {
   drums: { name: '드럼', clef: 'perc', gm: 0, drum: true },
@@ -388,7 +390,7 @@ function drumBar(genre, mood, bar, last, chorus, first) {
   const add = (k, u) => hits.push({ k, s: o + u, d: 2 });
   if (last) { add('crash', 0); add('kick', 0); return hits; }
   const busy = mood === 'power' || genre === 'rock';
-  const soft = mood === 'calm' || genre === 'ballad' || genre === 'acoustic';
+  const soft = mood === 'calm' || genre === 'ballad' || genre === 'acoustic' || genre === 'orch';
   if (first || (chorus && bar % 2 === 0 && !soft)) add('crash', 0);
   if (genre === 'dance') { // 네 박 모두 큰북(포 온 더 플로어), 엇박 하이햇
     [0, 4, 8, 12].forEach(u => add('kick', u)); add('snare', 4); add('snare', 12);
@@ -446,8 +448,10 @@ export function layoutOf(melody, lines, chords, intro, bars) {
   }
   const seen = {};
   let prev = null;
+  // 가사도 노래 음도 없는 줄 = 악기만 나오는 간주·후주
+  const empty = li => !syllables(lines[li].text).length && !melody.some(n => n.p != null && n.s >= lineStart(li) && n.s < lineStart(li + 1));
   lines.forEach((l, li) => {
-    const nm = l.chorus ? 'Chorus' : 'Verse';
+    const nm = empty(li) && li > 0 ? (lines.slice(li).every((_, k) => empty(li + k)) ? 'Outro' : 'Interlude') : l.chorus ? 'Chorus' : 'Verse';
     if (nm === prev) return;
     prev = nm; seen[nm] = (seen[nm] || 0) + 1;
     out.sections.push({ bar: li * 2, s: li * 2 * BAR, name: seen[nm] > 1 ? `${nm} ${seen[nm]}` : nm });
@@ -500,7 +504,7 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
         if (genre === 'dance') { for (let u = 2; u < c.d; u += 4) notes.push({ p: u % 8 === 6 ? low + 12 : low, s: c.s + u, d: 2 }); continue; }
         if (genre === 'hiphop') { [[0, 6, low], [7, 3, low], [10, 4, fifth]].forEach(([u, d, p]) => { if (u < c.d) notes.push({ p, s: c.s + u, d: Math.min(d, c.d - u) }); }); continue; }
         if (genre === 'rock' || mood === 'power') for (let u = 0; u < c.d; u += 2) notes.push({ p: low, s: c.s + u, d: 2 });
-        else if (genre === 'ballad' || genre === 'acoustic' || mood === 'calm') {
+        else if (genre === 'ballad' || genre === 'acoustic' || genre === 'orch' || mood === 'calm') {
           if (c.d >= 16) { notes.push({ p: low, s: c.s, d: 8 }); notes.push({ p: fifth, s: c.s + 8, d: 8 }); } else notes.push({ p: low, s: c.s, d: c.d });
         } else {
           const pat = c.d >= 16 ? [[0, 6, low], [6, 2, low], [8, 6, fifth], [14, 2, low]] : c.d >= 8 ? [[0, 6, low], [6, 2, low]] : [[0, c.d, low]];
@@ -511,7 +515,7 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
         if (lastBar) { notes.push({ p: v[0], s: c.s, d: c.d, chord: v }); continue; }
         if (genre === 'dance') { for (let u = 2; u < c.d; u += 4) notes.push({ p: v[0], s: c.s + u, d: 2, chord: v }); continue; }
         if (genre === 'hiphop') { notes.push({ p: v[0], s: c.s, d: Math.min(c.d, 12), chord: v }); continue; }
-        if (genre === 'ballad' || mood === 'calm') {
+        if (genre === 'ballad' || genre === 'orch' || mood === 'calm') {
           const arp = [v[0] - 12, v[0], v[1], v[2], v[0] + 12, v[2], v[1], v[0]];
           for (let u = 0, i = 0; u < c.d; u += 2, i++) notes.push({ p: arp[i % arp.length], s: c.s + u, d: 2 });
         } else if (genre === 'rock') notes.push({ p: v[0], s: c.s, d: c.d, chord: v });
@@ -528,7 +532,7 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
         } else if (genre === 'rock' || mood === 'power') {
           const pw = [v[0], v[0] + 7];
           for (let u = 0; u < c.d; u += 2) notes.push({ p: pw[0], s: c.s + u, d: 2, chord: pw });
-        } else if (genre === 'acoustic' || genre === 'ballad') {
+        } else if (genre === 'acoustic' || genre === 'ballad' || genre === 'orch') {
           const pat = c.d >= 16 ? [[0, 4], [4, 2], [6, 4], [10, 2], [12, 4]] : [[0, 4], [4, 2], [6, 2]];
           pat.forEach(([u, d]) => notes.push({ p: v[0], s: c.s + u, d, chord: v }));
         } else {
@@ -570,7 +574,7 @@ export function styleVocal(melody, settings, variant, key = 'C') {
   const v = melody.filter(n => n.p != null).map(n => ({ ...n, id: uid(), lx: 'n' })).sort((a, b) => a.s - b.s);
   const { genre = 'pop' } = settings;
   const bars = Math.ceil(Math.max(0, ...v.map(n => n.s + n.d)) / BAR);
-  const style = genre === 'rock' ? 'repeat' : genre === 'ballad' || genre === 'acoustic' ? 'stretch' : 'push';
+  const style = genre === 'rock' ? 'repeat' : genre === 'ballad' || genre === 'acoustic' || genre === 'orch' ? 'stretch' : 'push';
   const targets = [];
   for (let b = 0; b < bars - 1; b++) if ((b + variant) % 3 === 1) targets.push(b);
   let out = v;

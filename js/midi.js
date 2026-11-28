@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=10';
+import { BAR } from './core.js?v=11';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };
@@ -133,7 +133,7 @@ export function stemTracks(fileName, parsed) {
 }
 
 // ── 압축 파일(.zip)에서 MIDI 꺼내기 — 수노가 스템 MIDI를 zip 하나로 준다 ──
-export async function unzipMidi(file) {
+export async function unzipMidi(file, match = /\.midi?$/i) {
   const buf = await file.arrayBuffer(), d = new DataView(buf), u8 = new Uint8Array(buf);
   // 끝의 '중앙 디렉터리 끝' 기록 찾기
   let e = -1;
@@ -152,14 +152,14 @@ export async function unzipMidi(file) {
     try { name = new TextDecoder('utf-8', { fatal: !(flags & 0x800) ? true : false }).decode(raw); } catch (x) { name = new TextDecoder('euc-kr').decode(raw); }
     o += 46 + nlen + xlen + clen;
     const base = name.split('/').pop();
-    if (!/\.midi?$/i.test(base) || base.startsWith('._')) continue;
+    if (!match.test(base) || base.startsWith('._')) continue;
     const ln = d.getUint16(local + 26, true), lx = d.getUint16(local + 28, true);
     const data = u8.subarray(local + 30 + ln + lx, local + 30 + ln + lx + csize);
     let bytes;
     if (method === 0) bytes = data;
     else if (method === 8) bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
     else continue;
-    out.push(new File([bytes], base, { type: 'audio/midi' }));
+    out.push(new File([bytes], base, { type: /\.midi?$/i.test(base) ? 'audio/midi' : 'application/octet-stream' }));
   }
   return out;
 }
