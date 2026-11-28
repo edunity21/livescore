@@ -748,3 +748,4 @@ body.kara-open{overflow:hidden}
 .ed-kh-g dl{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin:0;font-size:12px;align-items:baseline}
 .ed-kh-g dt{white-space:nowrap}.ed-kh-g dd{margin:0;color:#3a3935}
 .ed-kh-g kbd{display:inline-block;min-width:16px;padding:0 5px;border:1px solid #cfcabd;border-bottom-width:2px;border-radius:5px;background:#fff;font:600 11px/17px ui-monospace,Menlo,monospace;text-align:center}
+.a2s-mt{display:inline-flex;flex-wrap:wrap;gap:6px;margin:4px 0 0 4px;vertical-align:middle}.a2s-mt .chip{padding:3px 9px;font-size:12.5px;background:#fff;cursor:pointer}.a2s-mt .chip.on{background:var(--ink);color:#fff}

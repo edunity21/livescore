@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=16">
+<link rel="stylesheet" href="app.css?v=17">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -139,6 +139,7 @@
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
       <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조 (C)</option><option value="G">사장조 (G)</option><option value="D">라장조 (D)</option><option value="A">가장조 (A)</option><option value="E">마장조 (E)</option><option value="B">나장조 (B)</option><option value="F#">올림바장조 (F♯)</option><option value="Gb">내림사장조 (G♭)</option><option value="Db">내림라장조 (D♭)</option><option value="Ab">내림가장조 (A♭)</option><option value="Eb">내림마장조 (E♭)</option><option value="Bb">내림나장조 (B♭)</option><option value="F">바장조 (F)</option></select></label>
       <label class="ctl"><span>박자 <small>홑·겹·혼합박자</small></span><select id="meterSel" aria-label="박자"></select></label>
+      <label class="ctl"><span>한 줄 <small>가사 한 줄 마디 수</small></span><select id="lineSel" aria-label="가사 한 줄 마디 수"><option value="2">2마디</option><option value="3">3마디</option><option value="4">4마디</option></select></label>
       <label class="ctl"><span>첫 마디 <small>여린내기면 못갖춘마디</small></span><select id="pickSel"><option value="0">갖춘마디 (1박부터)</option><option value="2">못갖춘마디 · 반 박</option><option value="4">못갖춘마디 · 1박</option><option value="6">못갖춘마디 · 1박 반</option><option value="8">못갖춘마디 · 2박</option><option value="12">못갖춘마디 · 3박</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
       <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
@@ -466,10 +467,10 @@
     <p class="sub">노래 선율을 찾아 음표로 바꾸고 가사를 차례로 붙여요. 완성곡에서 뽑은 선율에는 틀린 음이 섞이니 4·5단계에서 고쳐요 — 수노의 <b>노래(Vocals) 스템</b>을 함께 넣으면 훨씬 정확하고, 스템을 <b>MIDI</b>로 받아 넣으면 음이 가장 정확하고 몇 초면 끝나요.</p>
     <div class="a2s-in">
       <label class="drop sm" id="a2sDrop"><input type="file" id="a2sFile" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/flac"><b>완성곡 MP3</b><span>수노 → 내려받기 → MP3</span><em id="a2sName">눌러서 고르거나 끌어다 놓기</em></label>
-      <label class="drop sm" id="a2sDrop2"><input type="file" id="a2sVox" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mid,.midi,.zip,audio/*"><b>노래(Vocals) 스템 <small>선택 · MP3 또는 MIDI</small></b><span>수노 Get Stems → Vocals (MIDI 받기도 돼요)</span><em id="a2sName2">없어도 돼요</em></label>
+      <label class="drop sm" id="a2sDrop2"><input type="file" id="a2sVox" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mid,.midi,.zip,audio/*"><b>노래(Vocals) 스템 <small>선택 · MP3 또는 MIDI</small></b><span>수노 Get Stems → Vocals (WAV 권장 · MIDI 받기도 돼요)</span><em id="a2sName2">없어도 돼요</em></label>
     </div>
     <label class="fld"><span>가사 <small>MP3 안의 가사를 저절로 읽어요 · [Verse]·[Chorus] 같은 표시는 그대로 두면 구간과 후렴을 알아봐요</small></span><textarea id="a2sLyr" rows="5" placeholder="가사를 통째로 붙여 넣어요 (줄마다 한 소절)"></textarea></label>
-    <div class="row a2s-run"><label class="ctl"><span>박 맞춤</span><select id="a2sGrid" title="자동: 박마다 4분·8분·16분 중 가장 단순하면서 맞는 자리로"><option value="auto">자동(박마다)</option><option value="2">8분음표</option><option value="1">16분음표</option></select></label><button class="btn" type="button" id="a2sGo" disabled>악보 만들기</button><span class="hint" id="a2sState">MP3를 넣어 주세요</span></div>
+    <div class="row a2s-run"><label class="ctl"><span>박자</span><select id="a2sMeter" title="자동: 박자 × 박 크기 × 가사 한 줄 마디 수 가설을 견줘 찾아요"><option value="auto">자동(박자 찾기)</option></select></label><label class="ctl"><span>박 맞춤</span><select id="a2sGrid" title="자동: 박마다 4분·8분·16분 중 가장 단순하면서 맞는 자리로"><option value="auto">자동(박마다)</option><option value="2">8분음표</option><option value="1">16분음표</option></select></label><button class="btn" type="button" id="a2sGo" disabled>악보 만들기</button><span class="hint" id="a2sState">MP3를 넣어 주세요</span></div>
     <div class="a2s-prog" aria-hidden="true"><i id="a2sBar"></i></div>
     <div id="a2sOut" hidden>
       <p class="a2s-sum" id="a2sSum"></p>
@@ -505,6 +506,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=16"></script>
+<script type="module" src="js/app.js?v=17"></script>
 </body>
 </html>

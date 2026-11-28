@@ -4,7 +4,20 @@
 // ② 박마다 음표 자리 맞춤: 박마다 4분·8분·16분 중 가장 단순하면서 잘 맞는 자리(루바토로 생긴 점16분 같은 군더더기를 없앤다)
 // ③ 마디·줄 맞춤: 첫 박 × 못갖춘마디 × 구간마다 어긋남 가설을 모두 견줘 가사 줄이 2마디 줄에 가장 잘 맞는 것
 // ④ 가사 붙임새: 줄 안에서 글자마다 음 묶음 — 실러빅(한 글자 한 음) · 네우마틱(2~4음) · 멜리스마틱(5음 이상)
-import { timeToUnits, beatTrack, tempoCandidates, parseLyrics, sylOf, scaleBeats, bestOffset, FPS, INSTR } from './a2s.js?v=16';
+import { timeToUnits, beatTrack, tempoCandidates, parseLyrics, sylOf, scaleBeats, bestOffset, FPS, INSTR } from './a2s.js?v=17';
+import { METERS } from './core.js?v=17';
+
+// ── 박자 틀(v17) ── U: 박 하나(세는 박)의 16분 칸 수 — 홑박자 4(♩) · 겹박자 6(♩.) · 8분 혼합박자 2(♪)
+//   bar: 마디 칸 수 · nb: 마디의 박 수 · line: 가사 한 줄 칸 수 · w(u): 마디 안 자리의 셈여림 무게
+export function meterGeom(key = '4/4', lineBars = 0) {
+  const k = METERS[key] ? key : '4/4', m = METERS[k];
+  const U = m.kind === 'compound' ? 6 : m.d === 8 ? 2 : 4, bar = m.beats.reduce((a, v) => a + v, 0), lb = lineBars || m.line;
+  const gs = [], bs = []; let a = 0; m.groups.forEach(g => { gs.push(a); a += g; }); a = 0; m.beats.forEach(b => { bs.push(a); a += b; });
+  const w = u => { const r = ((u % bar) + bar) % bar; return r === 0 ? 1 : gs.includes(r) ? .8 : bs.includes(r) ? .55 : r % 2 === 0 ? .3 : .12; };
+  const subs = U === 6 ? [[1, 0], [3, .6], [6, 2.2]] : U === 2 ? [[1, 0], [2, .9]] : [[1, 0], [2, .6], [4, 2.2]];
+  return { key: k, kind: m.kind, U, bar, nb: bar / U, lineBars: lb, line: bar * lb, w, subs, gs, bs, pickups: [0, 2, 4, 6, 8, 12].filter(u => u < bar) };
+}
+let G = meterGeom('4/4'); // 지금 맞추는 박자(buildSongQ가 정한다)
 
 const posOf = (b, t) => timeToUnits(b, t) / 4; // 시각 → 박 번호(소수)
 export function timeAt(b, p) { // 박 번호(소수) → 시각
@@ -14,9 +27,12 @@ export function timeAt(b, p) { // 박 번호(소수) → 시각
 }
 // 음표가 놓일 만한 자리: 박 · 반 박 · 4분의 1 박 · 셋잇단(박을 다듬을 때만) — 단순한 자리일수록 먼저
 const TARGETS = [[0, 0], [1, 0], [.5, .02], [.25, .06], [.75, .06], [1 / 3, .09], [2 / 3, .09]];
+// 3박 갈래(겹박자의 ♩. 박): 박의 3분의 1(8분) · 6분의 1(16분) 자리가 먼저
+const TARGETS3 = [[0, 0], [1, 0], [1 / 3, .02], [2 / 3, .02], [1 / 6, .06], [5 / 6, .06], [.5, .09]];
+let TG = TARGETS;
 function target(p) {
   const k = Math.floor(p), f = p - k; let best = k, bc = 1e9;
-  for (const [g, pen] of TARGETS) { const c = Math.abs(f - g) + pen; if (c < bc) { bc = c; best = k + g; } }
+  for (const [g, pen] of TG) { const c = Math.abs(f - g) + pen; if (c < bc) { bc = c; best = k + g; } }
   return best;
 }
 const fillNaN = c => {
@@ -35,7 +51,7 @@ const noteW = x => .4 + Math.min(1.2, x.d / .5) + (x.on ?? .7);
 // 박에 맞춘 어긋남(초, 음 무게로 평균)과 복잡도(4분의 1 박·셋잇단 자리에 놓인 음의 몫)
 export function gridScore(notes, b) {
   let e = 0, w = 0, cx = 0;
-  notes.forEach(x => { const tg = target(posOf(b, x.t)), f = tg - Math.floor(tg), wt = noteW(x); e += Math.abs(x.t - timeAt(b, tg)) * wt; w += wt; if (Math.abs(f * 2 - Math.round(f * 2)) > 1e-6) cx++; });
+  notes.forEach(x => { const tg = target(posOf(b, x.t)), f = tg - Math.floor(tg), wt = noteW(x); e += Math.abs(x.t - timeAt(b, tg)) * wt; w += wt; const L = TG === TARGETS3 ? 3 : 2; if (Math.abs(f * L - Math.round(f * L)) > 1e-6) cx++; });
   return { err: e / (w || 1), cx: cx / (notes.length || 1) };
 }
 
@@ -76,7 +92,7 @@ function noteEnv(notes, dur) {
 }
 // 교차 검증: 후보마다 다듬고(3번 넘게), 어긋남 + 복잡도가 가장 작은 박을 고른다. 다른 후보와 박이 얼마나 겹치는지도 잰다
 // cands: [{ name, beats }] — 첫 후보를 기준 박 간격으로
-export function crossGrids(notes, cands, { dur = 0, regions = null, nLines = 0 } = {}) {
+export function crossGrids(notes, cands, { dur = 0, regions = null, nLines = 0, triple = false } = {}) {
   const list = cands.filter(c => c && c.beats && c.beats.length > 8);
   if (!list.length || !notes.length) return null;
   const t0 = notes[0].t, t1 = notes[notes.length - 1].t + notes[notes.length - 1].d, ref = medIbi(list[0].beats, t0, t1);
@@ -86,6 +102,8 @@ export function crossGrids(notes, cands, { dur = 0, regions = null, nLines = 0 }
   const flat = []; for (let t = a0[ia] - ia * ref; t < end + ref; t += ref) flat.push(t);
   const envN = noteEnv(notes, end);
   list.push({ name: '고른 빠르기', beats: flat }, { name: '음표로 센 박', beats: beatTrack(envN, bpm) });
+  // 3박 갈래 견주기(v17): 첫 후보 박의 3/2배 · 2/3배(♩ ↔ ♩.) — 겹박자 곡에서 박 추적이 다른 단위를 잡았을 때
+  if (triple) { const f6 = scaleBeats(a0, 6); [[9, '첫 박 ×3/2'], [4, '첫 박 ×2/3']].forEach(([n, nm]) => { const pg = pulseGrid(f6, n, notes, ref); list.push({ name: nm, beats: pg.beats, tri: true }); }); }
   // 빠르기도 견준다: 음표 시작의 되풀이 간격으로 찾은 빠르기(같은 단위로 맞춰 4% 넘게 다르면) — 처음 찾은 빠르기가 틀렸을 때
   const seen = [bpm];
   tempoCandidates(envN, { lo: 30, hi: 240, center: bpm }).slice(0, 4).forEach(c => {
@@ -93,14 +111,19 @@ export function crossGrids(notes, cands, { dur = 0, regions = null, nLines = 0 }
     if (seen.some(u => Math.abs(v / u - 1) < .04)) return; seen.push(v);
     list.push({ name: `음표로 센 박(♩=${Math.round(v)})`, beats: beatTrack(envN, v) });
   });
-  const res = list.map(c => {
-    const lv = levelTo(notes, c.beats, ref), s0 = gridScore(notes, lv), rf = refineBeats(notes, lv), s1 = gridScore(notes, rf.beats);
-    // 점수: 박 간격에 견준 어긋남(빠르기가 달라도 공정하게) + 복잡도 + 가사 한 줄이 2마디(8박)에서 벗어난 만큼
-    const ibi = medIbi(rf.beats, t0, t1), rel = s1.err / ibi;
-    let bpl = 0; if (regions && regions.length && nLines) { regions.forEach(r => { bpl += posOf(rf.beats, r[1]) - posOf(rf.beats, r[0]); }); bpl /= nLines; }
-    const lineFit = bpl ? Math.abs(Math.log2(bpl / 8)) : 0;
-    return { name: c.name, beats: rf.beats, err0: s0.err, err: s1.err, rel, cx: s1.cx, bpl, bpm: 60 / ibi, passes: rf.log.length - 1, score: rel + s1.cx * .05 + lineFit * .15 };
-  });
+  const one = (c, T) => {
+    TG = T;
+    try {
+      const lv = levelTo(notes, c.beats, ref), s0 = gridScore(notes, lv), rf = refineBeats(notes, lv), s1 = gridScore(notes, rf.beats);
+      // 점수: 박 간격에 견준 어긋남(빠르기가 달라도 공정하게) + 복잡도 + 가사 한 줄이 2마디(8박)에서 벗어난 만큼
+      //  3박 갈래로 다듬은 박은 줄 길이를 6·9·12박에도 견준다
+      const ibi = medIbi(rf.beats, t0, t1), rel = s1.err / ibi;
+      let bpl = 0; if (regions && regions.length && nLines) { regions.forEach(r => { bpl += posOf(rf.beats, r[1]) - posOf(rf.beats, r[0]); }); bpl /= nLines; }
+      const lineFit = bpl ? (T === TARGETS3 ? Math.min(...[4, 6, 8].map(v => Math.abs(Math.log2(bpl / v)))) : Math.abs(Math.log2(bpl / 8))) : 0;
+      return { name: c.name + (T === TARGETS3 ? ' · 3박 갈래' : ''), beats: rf.beats, err0: s0.err, err: s1.err, rel, cx: s1.cx, bpl, bpm: 60 / ibi, passes: rf.log.length - 1, tri: T === TARGETS3, score: rel + s1.cx * .05 + lineFit * .15 + (T === TARGETS3 ? .01 : 0) };
+    } finally { TG = TARGETS; }
+  };
+  const res = list.flatMap(c => triple ? [one(c, TARGETS), one(c, TARGETS3)] : [one(c, TARGETS)]);
   res.sort((a, b) => a.score - b.score);
   const best = res[0];
   // 겹침: 고른 박의 노래 구간 박 가운데 다른 후보에도 (박 간격 12% 안에) 박이 있는 몫
@@ -111,8 +134,8 @@ export function crossGrids(notes, cands, { dur = 0, regions = null, nLines = 0 }
 }
 
 // ② 박마다 음표 자리 맞춤 — mode: 'auto'(박마다 4분·8분·16분 중 단순하고 맞는 자리) · 2(8분) · 1(16분)
-export function quantize(notes, beats, { mode = 'auto' } = {}) {
-  const SS = mode === 'auto' ? [[1, 0], [2, .6], [4, 2.2]] : +mode === 2 ? [[2, 0]] : [[4, 0]];
+export function quantize(notes, beats, { mode = 'auto', geom = G } = {}) {
+  const U = geom.U, SS = mode === 'auto' ? geom.subs : [[Math.max(1, U / (+mode === 2 ? 2 : 1)), 0]];
   const P = notes.map(x => posOf(beats, x.t)), byBeat = new Map();
   P.forEach((p, i) => { const k = Math.floor(p + .125); if (!byBeat.has(k)) byBeat.set(k, []); byBeat.get(k).push(i); });
   const s = new Array(notes.length), sub = new Array(notes.length);
@@ -124,22 +147,22 @@ export function quantize(notes, beats, { mode = 'auto' } = {}) {
       for (let j = 1; j < sn.length; j++) if (sn[j] <= sn[j - 1]) c += 50; // 두 음이 한 자리에
       if (!best || c < best.c) best = { c, sn, S };
     }
-    idx.forEach((i, j) => { s[i] = Math.round((k + best.sn[j]) * 4); sub[i] = best.S; });
+    idx.forEach((i, j) => { s[i] = Math.round((k + best.sn[j]) * U); sub[i] = best.S; });
   });
   const out = notes.map((x, i) => ({ ...x, s: s[i], sub: sub[i], pos: P[i] }));
   for (let i = 1; i < out.length; i++) if (out[i].s <= out[i - 1].s) out[i].s = out[i - 1].s + 1; // 겹치면 16분 하나 뒤로
   out.forEach((x, i) => {
-    const nx = out[i + 1], k = Math.floor(x.s / 4), ibi = timeAt(beats, k + 1) - timeAt(beats, k);
+    const nx = out[i + 1], k = Math.floor(x.s / U), ibi = timeAt(beats, k + 1) - timeAt(beats, k);
     const gap = nx ? nx.t - (x.t + x.d) : 9;
     if (nx && gap < Math.max(.3, ibi * .45)) x.e = nx.s; // 이어 부른다
-    else { const pe = posOf(beats, x.t + x.d) * 4, g = x.sub === 4 ? 1 : 2; x.e = Math.max(x.s + 1, Math.round(pe / g) * g); if (nx) x.e = Math.min(x.e, nx.s); }
+    else { const pe = posOf(beats, x.t + x.d) * U, g = U / x.sub >= 2 ? 2 : 1; x.e = Math.max(x.s + 1, Math.round(pe / g) * g); if (nx) x.e = Math.min(x.e, nx.s); }
     if (x.e <= x.s) x.e = x.s + 1;
   });
   return out;
 }
 
 // ④ 가사 붙임새 — 글자가 새로 시작할 만한 음인지(박 세기 · 같은 음 · 쉼 · 긴 앞 음 · 도약 · 순차 짧은 음 · 세기)
-const metW = u => { const m = ((u % 16) + 16) % 16; return m === 0 ? 1 : m === 8 ? .8 : m % 4 === 0 ? .55 : m % 2 === 0 ? .3 : .12; };
+const metW = u => G.w(u);
 function startScore(ns, i, bar0) {
   if (i === 0) return 0;
   const x = ns[i], pv = ns[i - 1], dp = Math.abs(x.p - pv.p), rest = x.s - pv.e >= 1;
@@ -240,8 +263,8 @@ export function lineGroups(lines, regions, rawText = '', gapSec = 8) {
 function segment(ns, ms, grid) {
   const N = ns.length, M = ms.length, INF = 1e9;
   if (!N || !M) return { cost: N * .3, seg: [] };
-  const { bar0, pk } = grid;
-  const toLine = u => { const r = (((u - bar0 + pk) % 32) + 32) % 32; return Math.min(r, 32 - r); };
+  const { bar0, pk } = grid, RIN = Math.max(8, 2 * G.U);
+  const LN = G.line, toLine = u => { const r = (((u - bar0 + pk) % LN) + LN) % LN; return Math.min(r, LN - r); };
   const bc = a => { const d = toLine(ns[a].s); let c = d === 0 ? 0 : d === 1 || d === 3 ? .75 : d === 2 ? .55 : d === 4 ? .8 : 1.4 + d / 16; if (a === 0 || ns[a].s - ns[a - 1].e >= 2 || ns[a - 1].e - ns[a - 1].s >= 6) c -= .3; return c; };
   const lc = (j, a, b) => {
     const k = b - a, m = ms[j];
@@ -252,8 +275,8 @@ function segment(ns, ms, grid) {
       const need = m - k; c = Math.min(need, cap) * .3 + Math.max(0, need - cap) * 1.1 + (k < m * .6 ? 5 : 0);
     }
     const span = ns[b - 1].e - ns[a].s;
-    c += Math.max(0, span - 36) * .06 + Math.max(0, 20 - span) * .04; // 가사 한 줄은 대개 2마디
-    for (let q = a + 1; q < b; q++) if (ns[q].s - ns[q - 1].e >= 8) c += 2; // 줄 안에 두 박 넘는 쉼은 드물다
+    c += Math.max(0, span - LN * 1.125) * .06 + Math.max(0, LN * .625 - span) * .04; // 가사 한 줄은 대개 줄 길이(4/4는 2마디)
+    for (let q = a + 1; q < b; q++) if (ns[q].s - ns[q - 1].e >= RIN) c += 2; // 줄 안에 두 박 넘는 쉼은 드물다
     return c + bc(a);
   };
   // 가사 없이 넘기는 음: 묶음 앞(.3) · 줄 사이(.5) · 묶음 끝(.15 — 가사에 없는 되풀이·허밍은 대개 끝에 있다)
@@ -283,27 +306,33 @@ function cutBeats(beats, cuts) { // cuts: [{ at: 박 번호(가운데), n }]
 
 // ③+④ 곡 만들기(v13): 음(초) + 다듬은 박 + 가사 → 플랫폼 곡(2마디 한 줄, 16분음표 칸)
 // shift: 손으로 옮긴 첫 박(박 수) · mode: 'auto' | 2 | 1
-export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto', shift = 0, pickups = [0, 2, 4, 6, 8, 12] }) {
+// meter · lineBars: 박자와 가사 한 줄 마디 수(v17) — beats는 그 박자의 '세는 박'(♩ · ♩. · ♪) 시각
+export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto', shift = 0, pickups = null, meter = '4/4', lineBars = 0 }) {
+  const keep = G; G = meterGeom(meter, lineBars);
+  try { return buildQ({ notes, lyrics, beats, regions, mode, shift, pickups: pickups || G.pickups }); } finally { G = keep; }
+}
+function buildQ({ notes, lyrics, beats, regions, mode, shift, pickups }) {
+  const { U, nb, bar: BR, line: LN } = G;
   const lines = parseLyrics(lyrics || '');
   const vn = regions && regions.length ? notes.filter(x => regions.some(r => inRegion(x, r))) : notes.slice();
   if (!vn.length) return null;
   const groups = lines.length ? (regions && regions.length ? lineGroups(lines, regions, lyrics) : [{ idx: lines.map((_, i) => i), r: [-1e9, 1e9] }]) : [];
   const ms = lines.map(l => sylOf(l.text).length);
-  let q = quantize(vn, beats, { mode });
+  let q = quantize(vn, beats, { mode, geom: G });
   const gnotes = gr => q.filter(x => inRegion(x, gr.r));
   // 첫 박 가설 점수(가사가 없을 때 · 보탬): 긴 음과 쉼 뒤 음이 센 박에
-  const metPrior = bar0 => { let v = 0; q.forEach((x, i) => { const w = Math.min(4, (x.e - x.s) / 4) + (i && x.s - q[i - 1].e >= 4 ? 1 : 0); const m = (((x.s - bar0) % 16) + 16) % 16; v += m === 0 ? w : m === 8 ? w * .4 : 0; }); return v; };
+  const metPrior = bar0 => { let v = 0; q.forEach((x, i) => { const w = Math.min(4, (x.e - x.s) / 4) + (i && x.s - q[i - 1].e >= 4 ? 1 : 0); const m = (((x.s - bar0) % BR) + BR) % BR; v += m === 0 ? w : G.gs.includes(m) ? w * .4 : 0; }); return v; };
   // ── 가설 견주기: 첫 박 4 × 못갖춘마디 6 × 구간마다 줄 어긋남 0~7박 ──
   const hyps = [];
-  for (let k = 0; k < 4; k++) for (const pk of pickups) {
-    const bar0 = k * 4; let cost = pk * .04 - metPrior(bar0) * .03, offs = [], acc = 0;
+  for (let k = 0; k < nb; k++) for (const pk of pickups) {
+    const bar0 = k * U; let cost = pk * .04 - metPrior(bar0) * .03, offs = [], acc = 0;
     groups.forEach((gr, gi) => {
       const ns = gnotes(gr); if (!ns.length) { offs.push(0); return; }
       const gms = gr.idx.map(i => ms[i]);
       let best = null;
-      const range = gi === 0 ? [0] : [0, 1, 2, 3, 4, 5, 6, 7];
+      const range = gi === 0 ? [0] : Array.from({ length: LN / U }, (_, i) => i);
       for (const e of range) {
-        const shifted = ns.map(x => ({ ...x, s: x.s - (acc + e) * 4, e: x.e - (acc + e) * 4 }));
+        const shifted = ns.map(x => ({ ...x, s: x.s - (acc + e) * U, e: x.e - (acc + e) * U }));
         const c = segment(shifted, gms, { bar0, pk }).cost + (e ? .6 : 0);
         if (!best || c < best.c) best = { c, e };
       }
@@ -315,7 +344,7 @@ export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto'
   hyps.sort((a, b) => a.cost - b.cost);
   let h = hyps[0];
   if (shift) { // 손으로 옮긴 첫 박: 그 첫 박에서 가장 나은 가설
-    const k2 = (((h.k + shift) % 4) + 4) % 4; h = hyps.find(x => x.k === k2) || h;
+    const k2 = (((h.k + shift) % nb) + nb) % nb; h = hyps.find(x => x.k === k2) || h;
   }
   // ── 고른 가설대로 간주에서 박을 덜고 다시 맞춘다 ──
   const cuts = []; let fb = beats;
@@ -328,9 +357,9 @@ export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto'
       if (b - a >= e + 1) cuts.push({ at: Math.round((a + b) / 2), n: e });
     });
     fb = cutBeats(beats, cuts);
-    q = quantize(vn, fb, { mode });
+    q = quantize(vn, fb, { mode, geom: G });
   }
-  const bar0 = h.k * 4, pk = h.pk;
+  const bar0 = h.k * U, pk = h.pk;
   // ── 줄 나누기 · 글자 묶음 ──
   const lx = q.map(() => 'x'), syl = q.map(() => ''), li = q.map(() => -1), kinds = [];
   const word = lines.map(l => { const gap = []; let j = -1; for (const ch of l.text) { if (/[\p{L}\p{N}]/u.test(ch)) { j++; gap[j] = ''; } else if (j >= 0) gap[j] += ch; } return gap; });
@@ -344,8 +373,8 @@ export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto'
       const L = gr.idx[j], sy = sylOf(lines[L].text), m = sy.length, gap = word[L];
       let ids = idx.slice(a, b);
       // 나눈 조각이 다음 줄(2마디) 경계를 넘지 않게
-      const f0 = qq[ids[0]].s, lim = Math.max(f0 + 32 - ((((f0 - bar0 + pk) % 32) + 32) % 32), qq[ids[ids.length - 1]].s + 1);
-      const half = x => { const d = x.e - x.s; let h2 = d >= 8 ? Math.round(d / 2 / 4) * 4 || 4 : d >= 4 ? Math.round(d / 2 / 2) * 2 : Math.floor(d / 2); while (h2 > 1 && x.s + h2 >= lim) h2 = h2 >= 4 ? h2 - 2 : h2 - 1; return x.s + h2 < lim && h2 >= 1 && d - h2 >= 1 ? h2 : 0; };
+      const f0 = qq[ids[0]].s, lim = Math.max(f0 + LN - ((((f0 - bar0 + pk) % LN) + LN) % LN), qq[ids[ids.length - 1]].s + 1);
+      const half = x => { const d = x.e - x.s; let h2 = d >= 2 * U ? Math.round(d / 2 / U) * U || U : d >= 4 ? Math.round(d / 2 / 2) * 2 : Math.floor(d / 2); while (h2 > 1 && x.s + h2 >= lim) h2 = h2 >= 4 ? h2 - 2 : h2 - 1; return x.s + h2 < lim && h2 >= 1 && d - h2 >= 1 ? h2 : 0; };
       // 붙임새 DP: 음마다 '새 글자'(n) · '앞 글자 늘임'(e, 네우마·멜리스마) · '둘로 나눠 두 글자'(s) · '한 음에 두 글자'(d, 최후 수단)
       const plan = setLine(ids.map(id => qq[id]), wInit[L], m, bar0, half);
       // 나누기: 뒤에서부터(번호가 밀리지 않게)
@@ -378,10 +407,10 @@ export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto'
   q = qq;
   if (!lines.length) q.forEach((_, i) => { lx[i] = 'n'; });
   // ── 못갖춘마디 · 첫 줄: 줄 격자(2마디, −pk)에서 첫 음이 든 줄을 1줄로 ──
-  const s0 = q[0].s - bar0, n0 = Math.floor((s0 + pk) / 32), base = bar0 + n0 * 32;
+  const s0 = q[0].s - bar0, n0 = Math.floor((s0 + pk) / LN), base = bar0 + n0 * LN;
   const pickup = pk;
   const out = q.map((x, i) => ({ ...x, s: x.s - base, e: x.e - base, lx: lx[i], syl: syl[i], li: li[i] })).filter(x => x.s >= -pickup);
-  const lineOf = s => Math.floor((s + pickup) / 32);
+  const lineOf = s => Math.floor((s + pickup) / LN);
   const nLines = Math.max(1, lineOf(Math.max(...out.map(x => x.e - 1))) + 1);
   const L = Array.from({ length: nLines }, () => ({ text: '', chorus: 0, total: 0, sec: '' }));
   const mel = [];
@@ -392,15 +421,82 @@ export function buildSongQ({ notes, lyrics, beats, regions = null, mode = 'auto'
     if (k === 'd' && sylOf(x.syl).length < 2) k = 'n';
     if (k === 'n' || k === 'd') l.text += x.syl;
     l.total++; if (x.li >= 0 && lines[x.li].chorus) l.chorus++; if (!l.sec && x.li >= 0) l.sec = lines[x.li].sec || '';
-    const uq = timeToUnits(fb, x.t, bar0 / 4) - (base - bar0);
-    mel.push({ p: x.p, s: x.s, d: Math.max(1, x.e - x.s), lx: k, t: x.t, uq, ud: Math.max(.5, timeToUnits(fb, x.t + x.d, bar0 / 4) - (base - bar0) - uq) });
+    const uq = timeToUnits(fb, x.t, bar0 / U) * U / 4 - (base - bar0);
+    mel.push({ p: x.p, s: x.s, d: Math.max(1, x.e - x.s), lx: k, t: x.t, uq, ud: Math.max(.5, timeToUnits(fb, x.t + x.d, bar0 / U) * U / 4 - (base - bar0) - uq) });
   });
   mel.forEach((n, i) => { const nx = mel[i + 1]; if (nx && n.s + n.d > nx.s) n.d = Math.max(1, nx.s - n.s); });
   const lyricLines = L.map(l => ({ text: l.text.replace(/\s+/g, ' ').trim(), chorus: l.total > 0 && l.chorus * 2 >= l.total, sec: l.sec }));
   const count = { syllabic: 0, neumatic: 0, melismatic: 0 }; kinds.forEach(k => { if (count[k.kind] != null) count[k.kind]++; });
   return {
-    melody: mel, lines: lyricLines, pickup, firstBar: base / 16 - h.k / 4, offsetBeat: h.k + base / 4 - bar0 / 4 - pickup / 4,
+    melody: mel, lines: lyricLines, pickup, firstBar: base / BR - h.k / nb, offsetBeat: h.k + base / U - bar0 / U - pickup / U,
     grid: { beats: fb, bar1: h.k }, cut: cuts.reduce((a, c) => a + c.n, 0), kinds, count,
-    hyps: hyps.slice(0, 3).map(x => ({ k: x.k, pk: x.pk, cost: +x.cost.toFixed(2) })), base
+    hyps: hyps.slice(0, 3).map(x => ({ k: x.k, pk: x.pk, cost: +x.cost.toFixed(2) })), base,
+    meter: G.key, lineBars: G.lineBars, geom: { U, nb, bar: BR, line: LN }, cost: h.cost, nHyp: hyps.length
   };
+}
+
+// ── 박자 찾기(v17) ──
+// 가사 구간 태그의 박자 힌트: [Intro: 6/8, …] · [Verse 1: 4/4 with a 2/4 bar …] → 노래하는 줄 수만큼 표 · 첫 박자가 그 구간 박자
+export function meterHints(text) {
+  const out = {}; let cur = null;
+  String(text || '').replace(/\r/g, '').split('\n').forEach(raw => {
+    const ln = raw.trim(), tag = ln.match(/^\[([^\]]*)\]$/);
+    if (tag) { const m = tag[1].match(/(\d{1,2})\s*\/\s*(4|8)\b/); cur = m ? `${m[1]}/${m[2]}` : null; return; }
+    if (cur && ln.replace(/\[[^\]]*\]/g, '').trim()) out[cur] = (out[cur] || 0) + 1;
+  });
+  return out;
+}
+// 박을 6조각으로 나눠 n조각마다 묶은 '세는 박'(다듬은 박의 n/6배) — 어긋남 o는 음이 가장 잘 실리는 자리
+const RATIOS = [3, 4, 6, 8, 9, 12];
+function pulseGrid(fine, n, notes, ibi) {
+  if (n === 6) return { o: 0, beats: fine.filter((_, i) => i % 6 === 0) }; // 다듬은 박 그대로
+  const step = n % 3 === 0 ? 3 : 2, sig = ibi * n / 6 * .12;
+  let best = null;
+  for (let o = 0; o < n; o += step) {
+    const b = fine.filter((_, i) => i >= o && (i - o) % n === 0); let v = 0, j = 0;
+    notes.forEach(x => { while (j + 1 < b.length && b[j + 1] <= x.t) j++; const d = Math.min(Math.abs(x.t - b[j]), Math.abs((b[j + 1] ?? 1e9) - x.t)); v += noteW(x) * Math.min(3, x.d / (ibi * n / 6) + .3) * Math.exp(-((d / sig) ** 2)); });
+    if (!best || v > best.v) best = { o, v, beats: b };
+  }
+  return best;
+}
+const PULSE_BPM = { 4: [40, 170], 6: [28, 110], 2: [90, 340] };
+// 박자 × 세는 박 크기 × 줄 마디 수 가설마다 곡을 만들어 보고 가장 잘 맞는 것
+//  점수 = 가사 줄·마디 맞춤(buildSongQ) + 박에 엇갈린 음(당김음) + 자리 복잡도 + 한 줄 길이 어긋남 + 힌트·흔한 박자 덤
+export function findMeter({ notes, lyrics = '', beats, regions = null, mode = 'auto', meters = null, lineBars = 0, keep = 7 }) {
+  if (!notes.length || beats.length < 4) return [];
+  const lines = parseLyrics(lyrics), nL = lines.length, hints = meterHints(lyrics), hN = Object.values(hints).reduce((a, v) => a + v, 0);
+  const ibi = medIbi(beats, notes[0].t, notes[notes.length - 1].t);
+  // 가사 한 줄의 평균 길이(초): 노래 구간 길이 ÷ 줄 수
+  let lineSec = 0; if (nL && regions && regions.length) lineSec = regions.reduce((a, r) => a + r[1] - r[0], 0) / nL;
+  const fine = scaleBeats(beats, 6), list = meters || ['4/4', '3/4', '2/4', '6/8', '9/8', '12/8'];
+  // 당김음(박 사이에서 시작해 다음 박을 넘어가는 음, 마디를 넘으면 더) · 16분 자리 몫
+  const rhythm = (ms, g) => { let syn = 0, cx = 0; ms.forEach(x => { const s0 = x.s, e = x.e ?? x.s + x.d, r = ((s0 % g.U) + g.U) % g.U, nx = s0 - r + g.U; if (r && e > nx) syn += Math.min(1, (e - nx) / g.U) * (Math.floor(s0 / g.bar) !== Math.floor((e - 1) / g.bar) ? 1.5 : 1); if (s0 % 2) cx++; }); return { syn, cx: cx / Math.max(1, ms.length) }; };
+  const bonusOf = mk => (hN ? -1.2 * (hints[mk] || 0) / hN : 0) + (mk === '4/4' ? -.25 : mk === '3/4' || mk === '6/8' ? -.1 : 0);
+  // 1차: 박자 × 박 크기 × 줄 마디 수 — 음표 자리만으로 빠르게 견준다
+  const pre = [], grids = new Map();
+  for (const mk of list) {
+    const g0 = meterGeom(mk), [lo, hi] = PULSE_BPM[g0.U];
+    for (const n of RATIOS) {
+      const ps = ibi * n / 6, bpm = 60 / ps; if (bpm < lo || bpm > hi) continue;
+      const barSec = ps * g0.nb;
+      let fits = (lineBars ? [lineBars] : [2, 3, 4]).map(lb => ({ lb, f: lineSec ? Math.abs(Math.log2(lineSec / (lb * barSec))) : (lb === g0.lineBars ? 0 : .5) }));
+      fits = fits.filter(x => x.f < .42 || lineBars).sort((a, b) => a.f - b.f).slice(0, 2);
+      if (!fits.length) continue;
+      if (!grids.has(n)) grids.set(n, pulseGrid(fine, n, notes, ibi));
+      const pg = grids.get(n), qn = quantize(notes, pg.beats, { mode, geom: g0 }), rh = rhythm(qn, g0);
+      fits.forEach(({ lb, f }) => pre.push({ meter: mk, lineBars: lb, n, off: pg.o, bpm, beats: pg.beats, f, rh, quick: rh.syn / Math.max(1, qn.length) * 12 + rh.cx * 2 + f * 3 + bonusOf(mk) + (n === 6 ? 0 : .15) }));
+    }
+  }
+  pre.sort((a, b) => a.quick - b.quick);
+  // 2차: 앞선 가설만 가사 줄·마디까지 맞춰 본다
+  const res = [];
+  pre.slice(0, keep).forEach(h => {
+    const song = buildSongQ({ notes, lyrics, beats: h.beats, regions, mode, meter: h.meter, lineBars: h.lineBars });
+    if (!song) return;
+    const rh = rhythm(song.melody, meterGeom(h.meter, h.lineBars)), bonus = bonusOf(h.meter);
+    h.score = song.cost + rh.syn * .35 + rh.cx * 2 + h.f * 3 + bonus + (h.n === 6 ? 0 : .15);
+    h.parts = { fit: +song.cost.toFixed(2), syn: +rh.syn.toFixed(1), cx: +rh.cx.toFixed(2), line: +h.f.toFixed(2), bonus: +bonus.toFixed(2), quick: +h.quick.toFixed(2) };
+    h.song = song; res.push(h);
+  });
+  return res.sort((a, b) => a.score - b.score);
 }
