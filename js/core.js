@@ -349,6 +349,47 @@ export function placeSyllable(melody, lines, li, j, targetId) {
   }
 }
 
+// ── 조 지도(v20): 곡 중간 전조·변조 — [{ bar, key }] bar(0부터)부터 그 조 ──
+export const KEYMAP = { list: [] };
+export function setKeyMap(list) { KEYMAP.list = (list || []).filter(x => x && KEYS[x.key] && x.bar > 0).map(x => ({ bar: Math.round(x.bar), key: x.key })).sort((a, b) => a.bar - b.bar).filter((x, i, a) => !i || a[i - 1].bar !== x.bar); return KEYMAP.list; }
+export function keyAtBar(b, base, list = KEYMAP.list) { let k = base; for (const x of list) if (x.bar <= b) k = x.key; return k; }
+export const keyAtS = (s, base, list = KEYMAP.list) => keyAtBar(Math.floor(s / BAR), base, list);
+// 같은 조를 이어 붙이고(앞과 같으면 지움) 정리한 조 지도
+export function cleanKeyMap(list, base) { const out = []; let cur = base; (list || []).slice().sort((a, b) => a.bar - b.bar).forEach(x => { if (x.bar > 0 && KEYS[x.key] && x.key !== cur) { out.push({ bar: x.bar, key: x.key }); cur = x.key; } }); return out; }
+// 전조 찾기: 가사 한 줄(또는 두 마디)마다 음 높이 분포를 장조·나란한 단조 틀(크럼한슬)에 견주고,
+// 비터비로 '오래 머무는 조'만 고른다(가까운 조로 옮길수록 쉽게, 바뀐 뒤 한 줄 넘게 머물러야)
+const KK_MAJ = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], KK_MIN = [6.33, 2.68, 3.52, 5.38, 2.6, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+const corr = (h, prof, rot) => { const n = 12, mh = h.reduce((a, v) => a + v, 0) / n, mp = prof.reduce((a, v) => a + v, 0) / n; let num = 0, dh = 0, dp = 0; for (let i = 0; i < n; i++) { const a = h[(i + rot) % 12] - mh, b = prof[i] - mp; num += a * b; dh += a * a; dp += b * b; } return dh && dp ? num / Math.sqrt(dh * dp) : 0; };
+export function detectModulations(melody, bars, key, { win = 0, chords = null } = {}) {
+  const W = win || Math.max(BAR * 2, LINE), nW = Math.ceil(bars * BAR / W);
+  if (nW < 3) return [];
+  const ids = KEY_ORDER.filter(k => KEYS[k]);
+  const H = Array.from({ length: nW }, () => new Array(12).fill(0)), mass = new Array(nW).fill(0);
+  melody.forEach(n => { if (n.p == null || n.s < 0) return; const w = Math.floor(n.s / W); if (w >= nW) return; const wt = Math.min(n.d, 8) * (n.s % BAR === 0 ? 1.5 : 1); H[w][pc(n.p)] += wt; mass[w] += wt; });
+  (chords || []).forEach(c => { if (c.s < 0) return; const w = Math.floor(c.s / W); if (w >= nW) return; chordTones(c, (KEYS[key] || KEYS.C).tonic).forEach(x => { H[w][x] += c.d * .3; }); mass[w] += c.d * .3; });
+  const fifths = k => KEYS[k].fifths, dist = (a, b) => { let d = Math.abs(fifths(a) - fifths(b)); return Math.min(d, 12 - d); };
+  const emit = (w, k) => { if (mass[w] < 4) return 0; const t = KEYS[k].tonic, cm = corr(H[w], KK_MAJ, t), cn = corr(H[w], KK_MIN, pc(t + 9)); return Math.max(cm, cn * .92) * Math.min(1.5, mass[w] / 16) * 2.2; };
+  let best = ids.map(k => ({ s: emit(0, k) + (k === key ? 1.2 : -.6), path: [k] }));
+  for (let w = 1; w < nW; w++) {
+    best = ids.map(k => {
+      let top = null;
+      for (const b of best) { const pk = b.path[b.path.length - 1], d = dist(pk, k); const tr = pk === k ? 0 : d === 1 ? -1.6 : d <= 3 ? -2.4 : -3.2; const s = b.s + tr; if (!top || s > top.s) top = { s, path: b.path }; }
+      return { s: top.s + emit(w, k), path: [...top.path, k] };
+    });
+  }
+  best.sort((a, b) => b.s - a.s);
+  const path = best[0].path;
+  // 한 줄만 잠깐 다른 조는 빼고(부속화음으로 충분) · 마디 자리로
+  const out = []; let cur = key;
+  for (let w = 0; w < nW; w++) {
+    const k = path[w]; if (k === cur) continue;
+    let len = 0; while (w + len < nW && path[w + len] === k) len++;
+    if (len < 2 && w + len < nW) continue;
+    out.push({ bar: Math.floor(w * W / BAR), key: k }); cur = k;
+  }
+  return cleanKeyMap(out, key);
+}
+
 // ── 화성(v19) · 응용화성학 ──
 // 화음 = { r: 으뜸음에서 뿌리까지 반음, q: 성질, b?: 베이스(자리바꿈 · 으뜸음에서 반음), k?: 그 자리의 조(전조) }
 // 성질: 3화음(장·단·감·증) · 7화음(딸림7·장7·단7·반감7·감7) · 증6(이탈리아·프랑스·독일)
@@ -458,7 +499,7 @@ export function harmonize(melody, bars, key, opts = {}) {
   const SEG = []; for (let b = 0; b < bars; b++) cut.forEach((c, i) => SEG.push([b * BAR + c, (cut[i + 1] ?? BAR) - c]));
   const segs = SEG.length, perN = cut.length;
   // 조 지도: 자리마다 그 조(전조·변조)
-  const kmap = (opts.keys || []).filter(x => KEYS[x.key]).sort((a, b) => a.bar - b.bar);
+  const kmap = (opts.keys || KEYMAP.list || []).filter(x => KEYS[x.key]).sort((a, b) => a.bar - b.bar);
   const keyAt = s => { let kk = key; for (const x of kmap) if (x.bar * BAR <= s) kk = x.key; return kk; };
   const segKey = SEG.map(([s]) => keyAt(s));
   // 선율: 앞뒤 음(비화성음이 2도로 오가는지)

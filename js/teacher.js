@@ -1,8 +1,8 @@
 // LIVE SCORE · 교사용 모아보기 — 모둠 프로젝트 파일(.json) 여러 개를 이 브라우저 안에서만 읽어 한눈에
-import * as C from './core.js?v=19';
-import * as SC from './score.js?v=19';
-import * as SND from './sound.js?v=19';
-import { RUBRIC, LEVELS } from './plus.js?v=19';
+import * as C from './core.js?v=20';
+import * as SC from './score.js?v=20';
+import * as SND from './sound.js?v=20';
+import { RUBRIC, LEVELS } from './plus.js?v=20';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

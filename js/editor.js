@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=19';
-import * as SC from './score.js?v=19';
-import * as SND from './sound.js?v=19';
+import * as C from './core.js?v=20';
+import * as SC from './score.js?v=20';
+import * as SND from './sound.js?v=20';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -23,14 +23,15 @@ export function createEditor(host, opts) {
         <div class="ed-grp ed-speed" role="group" aria-label="재생 빠르기"><button type="button" data-sp="-1" title="느리게">−</button><b class="ed-spv" title="재생 빠르기(악보의 빠르기는 그대로)">100%</b><button type="button" data-sp="1" title="빠르게">＋</button></div>
         <div class="ed-grp ed-lygrp" hidden><button type="button" data-e="lyric" class="ed-lybtn" title="가사 입력 (L) — 음표를 누르고 글자를 친 뒤 띄어쓰기로 다음 음표">가사 입력</button></div>
         <div class="ed-grp ed-view" role="group" aria-label="악보 보기"><button type="button" data-view="page">페이지 보기</button><button type="button" data-view="scroll">스크롤 보기</button></div>
+        <div class="ed-grp ed-kgrp"><button type="button" data-e="quant" class="ed-qbtn" title="퀀타이즈(다시 기보) — 노래·파트의 음 자리와 길이를 박에 맞춰 정리 (Q)">퀀타이즈</button><button type="button" data-e="keysig" class="ed-ksbtn" title="조표 바꾸기 — 고른 마디부터 전조·변조 (K)">조표</button><button type="button" data-e="concert" class="ed-cpbtn" hidden title="이조 악기를 기보음(연주자가 읽는 음)으로 볼지, 실음으로 볼지">이조 악보</button></div>
         <div class="ed-grp ed-prgrp"><button type="button" data-e="print" class="ed-prbtn" title="총보·파트보 인쇄 (Ctrl+P)">인쇄</button></div>
       </div>
     </div>
     <div class="ed-keyhelp" hidden></div>
     <div class="score ed-score"><div class="ed-cursor" hidden></div></div>`;
   const scoreEl = host.querySelector('.ed-score');
-  const E = { marks: [], tune: null, sel: null, hist: [], fut: [], model: null, view: 'page', tl: null, follow: false, speed: 1, len: 4 };
-  try { E.view = localStorage.getItem('livescore-view') || 'page'; E.speed = +localStorage.getItem('livescore-speed') || 1; } catch (x) { }
+  const E = { marks: [], tune: null, sel: null, hist: [], fut: [], model: null, view: 'page', tl: null, follow: false, speed: 1, len: 4, concert: false };
+  try { E.view = localStorage.getItem('livescore-view') || 'page'; E.speed = +localStorage.getItem('livescore-speed') || 1; E.concert = localStorage.getItem('livescore-concert') === '1'; } catch (x) { }
   const SPEEDS = [.5, .6, .7, .75, .8, .9, 1, 1.1, 1.25, 1.5];
   function speedUI() {
     const m = E.model, b = host.querySelector('.ed-spv');
@@ -54,7 +55,8 @@ export function createEditor(host, opts) {
     const m = E.model;
     if (!m || !m.voices.length) { scoreEl.innerHTML = '<p class="empty">아직 악보가 없어요.</p>'; return; }
     const scroll = E.view === 'scroll';
-    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: scroll ? m.bars + (m.intro || 1) : (m.perLine || 4), voices: m.voices, showTitle: !!m.showTitle && !scroll, intro: m.intro || 0, sections: m.sections, header: m.header, ...(m.pickup != null ? { pickup: m.pickup } : {}) });
+    const hasTr = m.voices.some(v => v.trans);
+    const { abc, marks } = SC.buildAbcMap({ title: m.title, sub: m.sub, tempo: m.tempo, key: m.key, bars: m.bars, perLine: scroll ? m.bars + (m.intro || 1) : (m.perLine || 4), voices: m.voices, showTitle: !!m.showTitle && !scroll, intro: m.intro || 0, sections: m.sections, header: m.header, ...(m.pickup != null ? { pickup: m.pickup } : {}), ...(m.keys ? { keys: m.keys } : {}), transposed: hasTr && !E.concert });
     E.marks = marks;
     const cur = cursor(); if (cur) cur.remove();
     scoreEl.classList.toggle('scrollview', scroll);
@@ -66,6 +68,8 @@ export function createEditor(host, opts) {
     if (scroll) stickyHead();
     host.querySelector('.ed-lygrp').hidden = !opts.lyric || lyVoice() < 0;
     host.querySelector('.ed-prgrp').hidden = scroll; // 인쇄는 페이지 보기에서
+    const cp = host.querySelector('.ed-cpbtn'); cp.hidden = !hasTr; cp.textContent = E.concert ? '실음 악보' : '이조 악보'; cp.classList.toggle('on', !E.concert);
+    host.querySelector('.ed-ksbtn').hidden = !opts.keyMap;
     paintSel(); speedUI();
     if (LY.on) requestAnimationFrame(lyPlace);
   }
@@ -130,7 +134,7 @@ export function createEditor(host, opts) {
     const bar = b0 >= 1 ? b0 : intro ? `전주 ${b0 + intro}` : '못갖춘';
     if (!s.ref) { what.textContent = `${v.name} · ${bar}마디 · 쉼표 — A~G · ↑↓ · 건반으로 음을 넣어요`; return; }
     const n = s.ref;
-    const nm = v.drum ? (n.kit || []).map(k => ({ kick: '큰북', snare: '작은북', hat: '하이햇', crash: '심벌', ride: '라이드', tom: '탐' }[k])).join('+') : (n.chord && n.chord.length > 1 ? '화음 ' : '') + `${C.solName(n.p, E.model.key)}(${C.sciName(n.p, E.model.key)})`;
+    const nm = v.drum ? (n.kit || []).map(k => ({ kick: '큰북', snare: '작은북', hat: '하이햇', crash: '심벌', ride: '라이드', tom: '탐' }[k])).join('+') : (n.chord && n.chord.length > 1 ? '화음 ' : '') + (() => { const kh = C.keyAtS(Math.max(0, n.s), E.model.key, E.model.keys || C.KEYMAP.list), tr = !E.concert && v.trans ? v.trans : 0; return `${C.solName(n.p, kh)}(${C.sciName(n.p, kh)})` + (tr ? ` · 기보 ${C.sciName(n.p + tr, C.shiftKey(kh, tr))}` : ''); })();
     what.textContent = `${v.name} · ${bar}마디 · ${nm} · ${(LENS.find(l => l[0] === n.d) || [0, n.d / 4 + '박'])[1]}`;
     host.querySelectorAll('[data-len]').forEach(b => b.classList.toggle('on', +b.dataset.len === n.d));
   }
@@ -234,14 +238,18 @@ export function createEditor(host, opts) {
   }
   // ── 피날레 스피디처럼: 키보드로 음표 고치기 ──
   const cur0 = () => { const s = E.sel; return s ? (s.ref ? s.ref.s : s.s) : 0; };
-  const scale = () => { const k = C.KEYS[E.model.key] || C.KEYS.C; return C.MAJOR.map(x => (k.tonic + x) % 12); };
+  const selS = () => { const s = E.sel; return s ? (s.ref ? s.ref.s : s.s) : 0; };
+  const keyHere = (u = selS()) => C.keyAtS(Math.max(0, u), E.model.key, E.model.keys || C.KEYMAP.list); // 그 자리의 조(전조한 곳)
+  const scale = () => { const k = C.KEYS[keyHere()] || C.KEYS.C; return C.MAJOR.map(x => (k.tonic + x) % 12); };
   function stepPitch(p, dir) { const sc = scale(); let q = p; do { q += dir; } while (!sc.includes(C.pc(q)) && Math.abs(q - p) < 3); return q; } // 음계 한 칸(조표대로)
+  // 이조 악보로 보는 중이면 그 파트는 기보음으로 친다(B♭ 클라리넷에서 D = 실음 C) — 피날레처럼
+  const trOf = () => { const s = E.sel; if (!s || E.concert) return 0; const v = voiceOf(s.vi); return v && v.trans ? v.trans : 0; };
   function letterPitch(L, ref) { // 음이름 → 조표를 따른 음, 지금 음에 가장 가까운 옥타브
-    const k = C.KEYS[E.model.key] || C.KEYS.C, sc = scale();
+    const tr = trOf(), kk = tr ? C.shiftKey(keyHere(), tr) : keyHere(), k = C.KEYS[kk] || C.KEYS.C, sc = C.MAJOR.map(x => (k.tonic + x) % 12), r0 = ref + tr;
     let pcv = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[L];
     if (!sc.includes(pcv)) pcv = (pcv + (k.flat ? 11 : 1)) % 12;
-    let best = null; for (let o = -1; o <= 10; o++) { const p = pcv + 12 * o; if (best == null || Math.abs(p - ref) < Math.abs(best - ref) || (Math.abs(p - ref) === Math.abs(best - ref) && p > best)) best = p; }
-    return Math.max(21, Math.min(108, best));
+    let best = null; for (let o = -1; o <= 10; o++) { const p = pcv + 12 * o; if (best == null || Math.abs(p - r0) < Math.abs(best - r0) || (Math.abs(p - r0) === Math.abs(best - r0) && p > best)) best = p; }
+    return Math.max(21, Math.min(108, best - tr));
   }
   function setPitch(p) { // 고른 음(쉼표면 새 음)을 이 높이로 — 제자리
     const s = E.sel; if (!s) return;
@@ -254,7 +262,7 @@ export function createEditor(host, opts) {
   }
   function natural() { // 제자리표: 조표 표기에서 올림·내림을 뗀다
     const s = E.sel; if (!s || !s.ref) return;
-    const k = C.KEYS[E.model.key] || C.KEYS.C, nm = C.sciName(s.ref.p, E.model.key);
+    const tr = trOf(), kk = tr ? C.shiftKey(keyHere(), tr) : keyHere(), k = C.KEYS[kk] || C.KEYS.C, nm = C.sciName(s.ref.p + tr, kk);
     if (!/[♯♭#b]/.test(nm.slice(1, 2))) return opts.toast && opts.toast('이미 제자리음이에요');
     setPitch(s.ref.p + (k.flat ? 1 : -1));
   }
@@ -345,6 +353,9 @@ export function createEditor(host, opts) {
     if (a === 'keys') return keyHelp();
     if (a === 'lyric') return LY.on ? lyClose() : lyStart();
     if (a === 'print') return printMenu(b);
+    if (a === 'keysig') return keyMenu(b);
+    if (a === 'quant') return quantMenu(b);
+    if (a === 'concert') { E.concert = !E.concert; try { localStorage.setItem('livescore-concert', E.concert ? '1' : '0'); } catch (x) { } render(); opts.toast && opts.toast(E.concert ? '실음 악보 — 모든 파트를 소리 나는 음으로' : '이조 악보 — 이조 악기는 기보음(연주자가 읽는 음)과 그 조표로'); return; }
     if (a === 'playall') { opts.onPlay && opts.onPlay(E.model.start ?? 0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
     if (!E.sel && a !== 'play') return opts.toast && opts.toast('먼저 악보에서 음표를 눌러 골라요');
     if (a === 'up') pitch(1); if (a === 'down') pitch(-1);
@@ -361,6 +372,8 @@ export function createEditor(host, opts) {
     if (e.key === ' ') { e.preventDefault(); host.querySelector(E.sel ? '[data-e=play]' : '[data-e=playall]').click(); return true; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && E.view === 'page') { e.preventDefault(); printMenu(host.querySelector('.ed-prbtn')); return true; }
     if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'KeyL' && opts.lyric && lyVoice() >= 0) { e.preventDefault(); lyStart(); return true; }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'KeyK' && opts.keyMap) { e.preventDefault(); keyMenu(host.querySelector('.ed-ksbtn')); return true; }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'KeyQ') { e.preventDefault(); quantMenu(host.querySelector('.ed-qbtn')); return true; }
     if (!E.sel) return false;
     if (e.ctrlKey || e.metaKey) return false; // 브라우저 단축키(탭 바꾸기 등)는 그대로
     const s = E.sel, v = voiceOf(s.vi), code = e.code, num = /^(Digit|Numpad)(\d)$/.exec(code), d = num ? +num[2] : null;
@@ -585,6 +598,93 @@ export function createEditor(host, opts) {
     });
     return out;
   }
+  // ── 퀀타이즈(피날레 '다시 기보'처럼): 음 시작·끝을 가장 짧은 음 칸에 맞추고, 겹친 음을 자르고, 짧은 쉼표를 메운다 ──
+  function quantizeNotes(notes, g, fill, keepShort, mono = false) { // mono: 노래(글자가 붙은 음은 하나도 버리지 않는다)
+    const out = notes.filter(n => n.d > 0).map(n => {
+      let a = Math.round(n.s / g) * g, e = Math.round((n.s + n.d) / g) * g;
+      if (e <= a) e = a + g;
+      return { n, a, e };
+    }).sort((x, y) => x.a - y.a || y.e - x.e);
+    // 같은 자리에 둘 이상: 화음이면 하나로(가장 높은 음 = 대표), 아니면 긴 쪽
+    const merged = [];
+    out.forEach(x => {
+      const prev = merged[merged.length - 1];
+      if (prev && mono && x.a <= prev.a) { x.a = prev.a + g; if (x.e <= x.a) x.e = x.a + g; merged.push(x); return; } // 노래: 같은 칸이면 다음 칸으로
+      if (prev && prev.a === x.a) { if (x.n.p != null && prev.n.p != null) { const ps = [...new Set([...(prev.n.chord || [prev.n.p]), ...(x.n.chord || [x.n.p])])].sort((p, q) => p - q); prev.chord = ps.length > 1 ? ps : null; prev.top = ps[ps.length - 1]; prev.e = Math.max(prev.e, x.e); } return; }
+      merged.push(x);
+    });
+    for (let i = 0; i < merged.length; i++) {
+      const x = merged[i], nx = merged[i + 1];
+      if (nx && x.e > nx.a) x.e = nx.a; // 겹침은 다음 음 앞에서 자른다
+      if (fill && nx && nx.a - x.e > 0 && nx.a - x.e <= fill && Math.floor(x.a / C.BAR) === Math.floor((nx.a - 1) / C.BAR)) x.e = nx.a; // 짧은 쉼표는 앞 음을 늘여 메운다(마디 안에서)
+    }
+    return merged.filter(x => x.e > x.a && (mono || keepShort || x.e - x.a >= g)).map(x => {
+      const n = x.n; n.s = x.a; n.d = x.e - x.a;
+      if (x.chord) { n.chord = x.chord; n.p = x.top; } return n;
+    });
+  }
+  function quantMenu(btn) {
+    const old = host.querySelector('.ed-pop'); if (old) { old.remove(); return; }
+    const m = E.model, sel = E.sel, cur = sel ? voiceOf(sel.vi) : null;
+    const eds = m.voices.map((v, i) => [v, i]).filter(([v]) => v.editable && !v.drum && !v.slash);
+    if (!eds.length) return opts.toast && opts.toast('여기서 고칠 수 있는 파트가 없어요');
+    const pop = document.createElement('div'); pop.className = 'ed-pop ed-qpop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '퀀타이즈');
+    pop.innerHTML = `<div class="ep-h"><b>퀀타이즈 · 다시 기보</b><button type="button" class="ep-x" aria-label="닫기">×</button></div>
+      <div class="ks-mode"><label><input type="radio" name="qt" value="sel" ${cur && cur.editable && !cur.drum ? 'checked' : 'disabled'}><span><b>고른 파트</b><small>${cur ? esc(cur.name || '파트') : '음표를 고르면 그 파트만'}</small></span></label>
+      <label><input type="radio" name="qt" value="vocal" ${!(cur && cur.editable && !cur.drum) ? 'checked' : ''}><span><b>노래</b><small>${esc((eds[0][0].name) || '노래')}</small></span></label>
+      <label><input type="radio" name="qt" value="all"><span><b>모든 파트</b><small>노래와 고칠 수 있는 악기 ${eds.length}개</small></span></label></div>
+      <label class="ks-row"><span>가장 짧은 음</span><select class="q-g"><option value="1" selected>16분음표</option><option value="2">8분음표</option><option value="4">4분음표</option></select></label>
+      <label class="q-chk"><input type="checkbox" class="q-fill" checked> <span>박 안의 짧은 쉼표 메우기(앞 음을 늘임)</span></label>
+      <label class="q-chk"><input type="checkbox" class="q-short"> <span>가장 짧은 음보다 짧은 음도 남기기(악기)</span></label><p class="ks-none">노래는 글자가 붙은 음을 하나도 버리지 않고, 같은 칸에 몰리면 다음 칸으로 옮겨요.</p>
+      <div class="ks-go"><button type="button" class="btn sm" data-q="go">퀀타이즈</button></div>`;
+    host.appendChild(pop);
+    const hr = host.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    pop.style.top = (br.bottom - hr.top + 8) + 'px'; pop.style.right = Math.max(8, hr.right - br.right) + 'px';
+    pop.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.classList.contains('ep-x')) return pop.remove();
+      if (b.dataset.q !== 'go') return;
+      const tgt = pop.querySelector('[name=qt]:checked').value, g = +pop.querySelector('.q-g').value, fill = pop.querySelector('.q-fill').checked ? Math.max(g, 4) : 0, keep = pop.querySelector('.q-short').checked;
+      const vs = tgt === 'all' ? eds.map(x => x[0]) : tgt === 'sel' && cur ? [cur] : [eds[0][0]];
+      pop.remove();
+      let before = 0, after = 0;
+      commit(() => { vs.forEach(v => { before += v.notes.length; const q = quantizeNotes(v.notes, g, fill, keep, v.inst === 'melody' || !!v.lyricsTarget); v.notes.splice(0, v.notes.length, ...q); after += q.length; }); });
+      E.sel = null; render();
+      opts.toast && opts.toast(`퀀타이즈: ${vs.length}개 파트 · ${{ 1: '16분', 2: '8분', 4: '4분' }[g]}음표 칸 · 음 ${before}개 → ${after}개`);
+    });
+    setTimeout(() => { const off = e => { if (!pop.contains(e.target) && e.target !== btn) { pop.remove(); document.removeEventListener('pointerdown', off); } }; document.addEventListener('pointerdown', off); }, 0);
+  }
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // ── 조표 바꾸기(피날레 조표 도구처럼): 고른 마디부터 새 조 · 음은 그대로 두거나 함께 옮기기 · 전조 자동 찾기 ──
+  function keyMenu(btn) {
+    const old = host.querySelector('.ed-pop'); if (old) { old.remove(); return; }
+    const K = opts.keyMap; if (!K) return;
+    const sel = E.sel, bar = sel ? Math.max(0, Math.floor((sel.ref ? sel.ref.s : sel.s) / C.BAR)) : 0;
+    const base = E.model.key, list = K.list(), here = C.keyAtBar(bar, base, list), at = list.find(x => x.bar === bar);
+    const opt = k => `<option value="${k}" ${k === here ? 'selected' : ''}>${C.KEYS[k].name} (${k.replace('b', '♭').replace('#', '♯')})</option>`;
+    const pop = document.createElement('div'); pop.className = 'ed-pop ed-kspop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', '조표 바꾸기');
+    pop.innerHTML = `<div class="ep-h"><b>조표 바꾸기</b><button type="button" class="ep-x" aria-label="닫기">×</button></div>
+      <p class="ks-at">${bar ? `<b>${bar + 1}마디</b>부터` : '<b>곡 처음</b>부터'} · 지금 ${C.KEYS[here].name}${sel ? '' : ' <small>(음표를 고르면 그 마디부터)</small>'}</p>
+      <label class="ks-row"><span>새 조</span><select class="ks-key">${C.KEY_ORDER.filter(k => C.KEYS[k]).map(opt).join('')}</select></label>
+      <div class="ks-mode"><label><input type="radio" name="ksm" value="hold" checked><span><b>음은 그대로</b><small>조표만 바꾸고 임시표를 정리(전조한 선율을 이미 쳤을 때)</small></span></label>
+      <label><input type="radio" name="ksm" value="move"><span><b>음도 함께 옮기기</b><small>이 마디부터 끝(또는 다음 조바꿈)까지 선율·반주를 새 조로 조옮김</small></span></label></div>
+      <div class="ks-go"><button type="button" class="btn sm" data-ks="set">${bar ? `${bar + 1}마디부터 바꾸기` : '곡 전체 조 바꾸기'}</button>${at ? '<button type="button" class="btn sm ghost" data-ks="del">이 조바꿈 지우기</button>' : ''}</div>
+      <div class="ks-auto"><button type="button" data-ks="auto" title="가사 한 줄마다 음 높이 분포를 견줘 오래 머무는 조를 찾아요">전조 자동 찾기</button>${list.length ? '<button type="button" data-ks="clear">조바꿈 모두 지우기</button>' : ''}</div>
+      ${list.length ? `<ul class="ks-list">${list.map(x => `<li><b>${x.bar + 1}마디</b> → ${C.KEYS[x.key].name}</li>`).join('')}</ul>` : '<p class="ks-none">아직 곡 중간 조바꿈이 없어요.</p>'}`;
+    host.appendChild(pop);
+    const hr = host.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    pop.style.top = (br.bottom - hr.top + 8) + 'px'; pop.style.right = Math.max(8, hr.right - br.right) + 'px';
+    pop.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.classList.contains('ep-x')) return pop.remove();
+      const act = b.dataset.ks; if (!act) return;
+      const to = pop.querySelector('.ks-key').value, move = pop.querySelector('[name=ksm]:checked').value === 'move';
+      pop.remove();
+      const msg = act === 'set' ? K.set(bar, to, move) : act === 'del' ? K.remove(bar) : act === 'auto' ? K.detect() : K.clear();
+      E.sel = null; render(); if (msg && opts.toast) opts.toast(msg);
+    });
+    setTimeout(() => { const off = e => { if (!pop.contains(e.target) && e.target !== btn) { pop.remove(); document.removeEventListener('pointerdown', off); } }; document.addEventListener('pointerdown', off); }, 0);
+  }
   function printMenu(btn) {
     const old = host.querySelector('.ed-pop'); if (old) { old.remove(); return; }
     if (!E.model || !E.model.voices.length) return;
@@ -631,17 +731,18 @@ export function createEditor(host, opts) {
     pages.forEach(pg => {
       const sec = document.createElement('section'); sec.className = 'lsp-page' + (pg.part ? ' part' : ' full');
       let key = m.key, voices = pg.vs.map(v => ({ ...v, notes: v.notes }));
-      let trNote = '';
-      if (pg.part && pg.tr && voices[0].trans) { // 기보음: 조표와 음을 함께 옮긴다
-        const t = voices[0].trans; key = C.shiftKey(m.key, t);
+      let trNote = '', keys = m.keys || C.KEYMAP.list;
+      if (pg.part && pg.tr && voices[0].trans) { // 기보음: 조표와 음을 함께 옮긴다(곡 중간 조바꿈도)
+        const t = voices[0].trans; key = C.shiftKey(m.key, t); keys = keys.map(x => ({ bar: x.bar, key: C.shiftKey(x.key, t) }));
         voices = voices.map(v => ({ ...v, notes: v.notes.map(n => (n.p == null ? n : { ...n, p: n.p + t, chord: n.chord ? n.chord.map(x => x + t) : n.chord })), chords: null }));
         trNote = `${transLabel(t)} · 기보음 · ${C.KEYS[key].name}`;
       } else if (pg.part && voices[0].trans) trNote = '실음';
       if (pg.part && !voices.some(v => v.chords) && m.voices[0] && m.voices[0].chords && !voices[0].drum && !voices[0].trans) voices[0] = { ...voices[0], chords: m.voices[0].chords }; // 리듬 파트도 코드 기호를
       if (pg.part) voices = voices.map(v => ({ ...v, name: v.group ? v.name : '', sub: v.group ? v.sub : '' }));
-      const build = () => SC.buildAbcMap({ title, sub: m.sub, header: null, tempo: m.tempo, key, bars: m.bars, perLine: 4, voices, showTitle: false, intro: m.intro || 0, sections: m.sections, multirest: !!pg.part, ...(m.pickup != null ? { pickup: m.pickup } : {}) }).abc;
+      const fullTr = !pg.part && !E.concert && voices.some(v => v.trans);
+      const build = () => SC.buildAbcMap({ title, sub: m.sub, header: null, tempo: m.tempo, key, bars: m.bars, perLine: m.perLine || 4, voices, showTitle: false, intro: m.intro || 0, sections: m.sections, multirest: !!pg.part, keys, transposed: fullTr, ...(m.pickup != null ? { pickup: m.pickup } : {}) }).abc;
       const credit = header.credit || m.sub || '', style = header.style ? `${header.style} ` : '';
-      sec.innerHTML = `<header class="lsp-h"><div class="lsp-part"><b>${escH(pg.label)}</b>${trNote ? `<small>${escH(trNote)}</small>` : pg.part ? '' : '<small>실음(C) 총보</small>'}</div><div class="lsp-meta">${escH(C.KEYS[m.key].name)} · ${m.bars}마디</div></header>
+      sec.innerHTML = `<header class="lsp-h"><div class="lsp-part"><b>${escH(pg.label)}</b>${trNote ? `<small>${escH(trNote)}</small>` : pg.part ? '' : `<small>${fullTr ? '이조 총보(기보음)' : '실음(C) 총보'}</small>`}</div><div class="lsp-meta">${escH(C.KEYS[m.key].name)} · ${m.bars}마디</div></header>
         <div class="lsp-title"><h1>${escH(title)}</h1>${!pg.part && header.subtitle ? `<p class="lsp-sub">${escH(header.subtitle)}</p>` : ''}<div class="lsp-cr"><span>${escH(style)}♩ = ${m.tempo}</span><span>${escH(credit)}</span></div>${!pg.part && header.info ? `<p class="lsp-info">${escH(header.info)}</p>` : ''}</div>
         <div class="lsp-score"></div><footer class="lsp-f">LIVE SCORE · 실시간 악보${pg.part ? ` · ${escH(pg.label)}` : ''}</footer>`;
       box.appendChild(sec);

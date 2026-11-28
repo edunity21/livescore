@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=19';
+import { BAR, KEYS, METER, KEYMAP, keyAtBar, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=20';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -47,7 +47,9 @@ export function buildAbc(o) { return buildAbcMap(o).abc; }
 // 편집기용: 악보 글과 함께, 글 속 각 음표·쉼표 위치(marks)를 돌려준다
 // layout: intro(전주 마디 수 — 0이면 못갖춘마디는 짧은 첫 마디), sections [{bar, name}](리허설 표시·겹세로줄),
 // header {subtitle, credit, style, info}(악보 머리), 성부마다 dyn [{s, m}](셈여림) · tech [{s, text}](주법 글)
-export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars, perLine = 4, voices, showTitle = true, pickup = METER.pickup, cutEnd, barNumbers = true, intro = 0, sections = null, header = null, multirest = false }) {
+// keys: 조 지도(전조) · transposed: 이조 악기를 기보음으로(피날레 '실음 보기' 끔)
+export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars, perLine = 4, voices, showTitle = true, pickup = METER.pickup, cutEnd, barNumbers = true, intro = 0, sections = null, header = null, multirest = false, keys = KEYMAP.list, transposed = false }) {
+  const kAt = b => keyAtBar(Math.max(0, b), key, keys), kChg = b => b > 0 && kAt(b) !== kAt(b - 1);
   if (intro) pickup = 0; // 전주가 있으면 여린내기 음은 전주 마지막 마디 안에 들어간다
   if (cutEnd == null) { // 못갖춘마디로 시작하면 마지막 마디를 그만큼 짧게(그 자리에 음이 없을 때만)
     const lastEnd = Math.max(0, ...voices.flatMap(v => v.notes.map(n => n.s + n.d)));
@@ -113,9 +115,12 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
   }
   lineBars.forEach((segs, li) => {
     vp.forEach(({ v, pieces, pre, slA, slB }, vi) => {
-      let mus = `[V:${v.id}] ` + (li === 0 && v.drum ? '[K:none clef=perc] ' : ''); // 타악기 보표에는 조표를 적지 않는다
+      const tr = transposed && !v.drum && v.trans ? v.trans : 0; // 이조 악기: 기보음 = 실음 + trans, 조표도 그만큼
+      const vkey = b => { const k0 = v.key && !keys.length ? v.key : kAt(b); return tr ? shiftKey(k0, tr) : k0; };
+      const k0 = vkey(segs[0].b);
+      let mus = `[V:${v.id}] ` + (li === 0 && v.drum ? '[K:none clef=perc] ' : !v.drum && (k0 !== key || kChg(segs[0].b)) ? `[K:${k0}] ` : ''); // 타악기 보표에는 조표를 적지 않는다 · 줄마다 그 자리 조
       const lyr = [], local = [];
-      const dsp = p => p + (v.disp || 0); // 옥타브 위로 적는 악기(기타·베이스)
+      const dsp = p => p + (v.disp || 0) + tr; // 옥타브 위로 적는 악기(기타·베이스) · 이조 악기
       for (const { b, z } of segs) {
         if (z > 1) { // 여러 마디 쉼표
           const last = b + z - 1;
@@ -123,9 +128,10 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
           mus += `Z${z} ${last === bars - 1 ? '|]' : secAt.has(last + 1) ? '||' : '|'} `;
           continue;
         }
-        const bar = new Map();
+        const bar = new Map(), bk = vkey(b);
         if (vi === 0 && secAt.has(b)) mus += `[P:${secAt.get(b)}] `;
-        const endBar = b === bars - 1 ? '|]' : secAt.has(b + 1) && b >= first && !(pickup && b === -1) ? '||' : '|';
+        if (!v.drum && kChg(b) && b !== segs[0].b) mus += `[K:${bk}] `; // 조바꿈: 새 조표
+        const endBar = b === bars - 1 ? '|]' : (secAt.has(b + 1) || kChg(b + 1)) && b >= first && !(pickup && b === -1) ? '||' : '|';
         const inBar = pieces.filter(q => q.s >= b * BAR && q.s < (b + 1) * BAR);
         if (!inBar.length) { mus += ' ' + endBar + ' '; continue; }
         const group = beamGroups(inBar, b * BAR);
@@ -146,8 +152,8 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
           } else if (v.slash) {
             tok += '!style=rhythm!B' + q.d;
           } else if (q.ref && q.ref.chord && q.ref.chord.length > 1) {
-            tok += '[' + [...q.ref.chord].sort((x, y) => x - y).map(p => abcPitch(dsp(p), v.key || key, bar)).join('') + ']' + q.d;
-          } else tok += (slA.has(q.ref) && !q.tiePrev ? '(' : '') + abcPitch(dsp(q.p), v.key || key, bar) + q.d;
+            tok += '[' + [...q.ref.chord].sort((x, y) => x - y).map(p => abcPitch(dsp(p), bk, bar)).join('') + ']' + q.d;
+          } else tok += (slA.has(q.ref) && !q.tiePrev ? '(' : '') + abcPitch(dsp(q.p), bk, bar) + q.d;
           if (q.tieNext) tok += '-';
           else if (slB.has(q.ref)) tok += ')';
           mus += tok;
@@ -203,7 +209,8 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
 const DRUM_X = { kick: ['F', 4, 36], snare: ['C', 5, 38], tom: ['E', 5, 45], hat: ['G', 5, 42], ride: ['F', 5, 51], crash: ['A', 5, 49], tamb: ['E', 5, 54] };
 
 // parts: [{name, clef, notes, drum?, program, lyrics?:flow, chords?:[{s,r,q,name}] }]
-export function buildMusicXML({ title, sub, tempo, key, bars, parts, pickup = METER.pickup, intro = 0, sections = null, header = null }) {
+export function buildMusicXML({ title, sub, tempo, key, bars, parts, pickup = METER.pickup, intro = 0, sections = null, header = null, keys = KEYMAP.list }) {
+  const kAt = b => keyAtBar(Math.max(0, b), key, keys);
   if (intro) pickup = 0;
   const first = intro ? -intro : pickup ? -1 : 0;
   const lastEnd = Math.max(0, ...parts.flatMap(p => p.notes.map(n => n.s + n.d)));
@@ -245,7 +252,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
     }
     const disp = p.disp || 0;
     // 이조 악기(클라리넷·트럼펫·색소폰): 기보음과 그 조표로 적고 <transpose>로 실음을 알려 준다 — 뮤즈스코어 '실음 보기'도 맞게
-    const tr = p.drum ? 0 : p.trans || 0, pkey = tr ? shiftKey(key, tr) : key, pk = KEYS[pkey] || k;
+    const tr = p.drum ? 0 : p.trans || 0, pkAt = b => (tr ? shiftKey(kAt(b), tr) : kAt(b)); let pkey = pkAt(first), pk = KEYS[pkey] || k;
     const DIA = { 2: 1, 9: 5, 14: 8, 21: 12, 7: 4, '-3': -2 };
     const b0 = first;
     const dir = new Map(); // 셈여림·주법 글: 그 자리 첫 음(주법은 첫 조각) 앞에
@@ -255,6 +262,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
     for (let b = b0; b < bars; b++) {
       const num = intro ? b - first + 1 : b + 1;
       x += `    <measure number="${num}"${!intro && b < 0 ? ' implicit="yes"' : ''}>\n`;
+      if (b > b0 && b > 0 && kAt(b) !== kAt(b - 1)) { pkey = pkAt(b); pk = KEYS[pkey] || k; if (!p.drum) x += `      <attributes><key><fifths>${pk.fifths}</fifths><mode>major</mode></key></attributes>\n`; } // 조바꿈
       if (i === 0 && secAt.has(b)) x += `      <direction placement="above"><direction-type><rehearsal enclosure="rectangle">${esc(secAt.get(b))}</rehearsal></direction-type></direction>\n`;
       if (b === b0) {
         const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'alto' ? '<sign>C</sign><line>3</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';

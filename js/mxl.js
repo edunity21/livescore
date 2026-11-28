@@ -1,6 +1,6 @@
 // 뮤즈스코어 연동: MusicXML(.musicxml · .xml · .mxl) 읽기
 // 뮤즈스코어에서 고친 악보를 다시 불러와 선율·가사·빠르기·조·못갖춘마디를 플랫폼 곡으로 되살린다
-import { unzipMidi } from './midi.js?v=19';
+import { unzipMidi } from './midi.js?v=20';
 
 const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const FIFTHS = { 0: 'C', 1: 'G', 2: 'D', 3: 'A', 4: 'E', 5: 'B', 6: 'F#', '-1': 'F', '-2': 'Bb', '-3': 'Eb', '-4': 'Ab', '-5': 'Db', '-6': 'Gb', 7: 'Db', '-7': 'B' };
