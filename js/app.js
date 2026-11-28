@@ -1,16 +1,17 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=12';
-import * as SND from './sound.js?v=12';
-import * as MIDI from './midi.js?v=12';
-import * as SC from './score.js?v=12';
-import * as HUM from './hum.js?v=12';
+import * as C from './core.js?v=13';
+import * as SND from './sound.js?v=13';
+import * as MIDI from './midi.js?v=13';
+import * as SC from './score.js?v=13';
+import * as HUM from './hum.js?v=13';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=12';
-import * as PLUS from './plus.js?v=12';
-import * as ORCH from './orch.js?v=12';
-import * as CAM from './cam.js?v=12';
-import * as A2S from './a2s.js?v=12';
-import * as MXL from './mxl.js?v=12';
+import { createEditor, activeEditor } from './editor.js?v=13';
+import * as PLUS from './plus.js?v=13';
+import * as ORCH from './orch.js?v=13';
+import * as CAM from './cam.js?v=13';
+import * as A2S from './a2s.js?v=13';
+import * as A2Q from './a2q.js?v=13';
+import * as MXL from './mxl.js?v=13';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -2039,7 +2040,7 @@ $('#a2sGo').onclick = async () => {
     const regions = vad ? A2S.vocalRegions(vad, vox ? { thr: .2, minLen: 1.5 } : {}) : null;
     // 가사 한 줄 = 2마디(8박)가 되게: 한 줄이 12박 넘게 걸리면 ÷2, 5박도 안 되면 ×2
     const bpl = A2S.beatsPerLine(regions, beats, A2S.parseLyrics($('#a2sLyr').value).length), mul = bpl >= 12 ? .5 : bpl && bpl <= 5 ? 2 : 1;
-    A2.res = { notes, regions, beats, autoBpm: bpm, bpm: bpm * mul, mul, autoMul: mul, k, shift: 0, half: false, fixed: false, how, dur: base.buf.duration, tc: tc.slice(0, 4).map(c => Math.round(c.bpm)) };
+    A2.res = { q: true, notes, regions, beats, autoBpm: bpm, bpm: bpm * mul, mul, autoMul: mul, k, shift: 0, half: false, fixed: false, how, dur: base.buf.duration, tc: tc.slice(0, 4).map(c => Math.round(c.bpm)) };
     a2sBuild(); bar(1); st('다 됐어요 — 아래 악보를 원곡과 함께 들어 보고, 빠르기·첫 박을 맞춰요');
   } catch (x) { console.warn(x); st('분석하지 못했어요 — ' + (x.message || '다른 파일로 해 봐요')); bar(0); }
   finally { $('#a2sGo').disabled = false; }
@@ -2054,22 +2055,44 @@ async function a2sFromMidi(st, bar) {
   const notes = A2S.midiNotes(tr.notes, pm.sec, pm.div), beats = A2S.midiBeats(pm.sec, pm.div, lastTick);
   if (!notes.length) throw new Error('MIDI에서 노래 음을 찾지 못했어요');
   A2.src = null;
-  if (A2.mix) { st('원곡 소리를 여는 중…'); bar(.5); try { A2.src = await a2sOpenAudio(A2.mix); } catch (x) { toast(x.message + ' — MIDI만으로 만들어요'); } }
+  let env = null;
+  if (A2.mix) {
+    st('원곡 소리를 여는 중…'); bar(.4);
+    try {
+      A2.src = await a2sOpenAudio(A2.mix);
+      st('원곡의 박을 따로 세는 중… (MIDI 박과 견주려고)'); bar(.6); await new Promise(r => setTimeout(r, 20));
+      const len = Math.ceil(A2.src.duration * A2S.SR), off = new OfflineAudioContext(1, len, A2S.SR), sn = off.createBufferSource();
+      sn.buffer = A2.src; sn.connect(off.destination); sn.start(); env = A2S.onsetEnvelope((await off.startRendering()).getChannelData(0));
+    } catch (x) { toast(x.message + ' — MIDI만으로 만들어요'); }
+  }
   const regions = A2S.noteRegions(notes);
   // 가사 한 줄 = 2마디(8박)가 되게: 한 줄이 12박 넘게 걸리면 ÷2, 5박도 안 되면 ×2
   const bpl = A2S.beatsPerLine(regions, beats, A2S.parseLyrics($('#a2sLyr').value).length);
   const mul = bpl >= 12 ? .5 : bpl && bpl <= 5 ? 2 : 1, auto = A2S.medianBpm(beats);
-  A2.res = { midi: true, notes, regions, beats, autoBpm: auto, mul, autoMul: mul, bpm: auto * mul, k: 0, shift: 0, half: false, fixed: false, how: '노래 MIDI', dur: A2.src ? A2.src.duration : beats[beats.length - 1], tc: [] };
+  A2.res = { midi: true, q: true, env, notes, regions, beats, autoBpm: auto, mul, autoMul: mul, bpm: auto * mul, k: 0, shift: 0, half: false, fixed: false, how: '노래 MIDI', dur: A2.src ? A2.src.duration : beats[beats.length - 1], tc: [] };
   a2sBuild(); bar(1); st('다 됐어요 — 아래 악보를 원곡과 함께 들어 보고, 빠르기·첫 박을 맞춰요');
 }
 // 지금 빠르기 배수(÷2·×2)·반 박에 맞춘 박 시각과, 1마디 첫 박이 되는 박 번호
 function a2sGrid() {
   const r = A2.res, mul = r.mul || 1; r.cut = 0;
   let beats, i0;
-  if (r.midi) {
+  if (r.q) {
+    // 박 교차 검증: MIDI 박 지도 · MP3 박 추적 · 고른 빠르기 · 음표로 센 박 → 저마다 3번 넘게 다듬어 가장 잘 맞는 박(첫 박·마디는 곡 만들 때 가설로 견준다)
+    const key = mul + '|' + A2S.parseLyrics($('#a2sLyr').value).length;
+    if (!r.cv || r.cv.key !== key) {
+      const off = mul < 1 ? A2S.bestOffset(r.notes, r.beats, Math.round(1 / mul)) : 0;
+      const a = A2S.scaleBeats(r.beats, mul, off);
+      const cands = [{ name: r.midi ? 'MIDI 박 지도' : 'MP3 박 추적', beats: a }];
+      if (r.midi && r.env) cands.push({ name: 'MP3 박 추적', beats: A2S.beatTrack(r.env, A2S.medianBpm(a)) });
+      r.cv = { key, ...(A2Q.crossGrids(r.notes, cands, { dur: r.dur, regions: r.regions, nLines: A2S.parseLyrics($('#a2sLyr').value).length }) || { beats: a, best: cands[0].name, cands: [] }) };
+    }
+    const cb = r.half ? A2S.halfShift(r.cv.beats) : r.cv.beats; // 반 박 밀기는 고른 박에서
+    r.gridBpm = r.cv.cands && r.cv.cands[0] && r.cv.cands[0].bpm || 0; // 고른 박의 빠르기(노래하는 곳의 가운데 값)
+    if (r.fixed) { const g = A2S.makeGrid({ bpm: r.bpm, offset: cb[0], fixed: true, dur: r.dur }); return { beats: g, bar1: 0 }; }
+    return { beats: cb, bar1: 0 };
+  } else if (r.midi) {
     const off = mul < 1 ? A2S.bestOffset(r.notes, r.beats, Math.round(1 / mul)) : 0;
     beats = A2S.scaleBeats(r.beats, mul, off); if (r.half) beats = A2S.halfShift(beats);
-    // 마디: 가사 줄 첫 음이 2마디 줄의 첫 박에 오게(가사가 없으면 긴 음·구절 첫 음으로) — 간주에서 어긋난 박은 덜어 낸다
     const starts = A2S.lyricLineStarts(r.notes, $('#a2sLyr').value, r.regions, true);
     const al = (starts.length >= 2 && A2S.alignLines(beats, starts, r.regions)) || A2S.alignSections(r.notes, beats, r.regions);
     beats = al.beats; i0 = al.k; r.cut = al.cut;
@@ -2091,20 +2114,38 @@ function a2sGrid() {
   }
   return { beats, bar1: (((i0 + r.shift) % 4) + 4) % 4 };
 }
+// 교차 검증·붙임새 요약
+const jo = (w, a, b) => { const c = w.charCodeAt(w.length - 1); return w + (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? a : b); }; // 받침에 따라 을/를 · 과/와
+const KIND = { syllabic: '실러빅(한 글자 한 음)', neumatic: '네우마틱(한 글자 2~4음)', melismatic: '멜리스마틱(한 글자 5음 넘게)' };
+function a2sCheck(song) {
+  const r = A2.res; if (!r || !r.q || !song) return '';
+  let h = '';
+  const cv = r.cv;
+  if (cv && cv.cands && cv.cands.length && !r.fixed) {
+    const b = cv.cands[0], near = cv.cands.slice(1).sort((x, y) => y.agree - x.agree)[0];
+    const shown = cv.cands.slice(0, 4).map((c, i) => `${i ? '' : '<b>'}${c.name.replace(/\(♩=\d+\)/, '')} ♩${Math.round(c.bpm || 0)} · ${Math.round(c.err * 1000)}ms${i ? '' : '</b>'}`).join(' / ');
+    h += `<br>박 교차 검증: 박 후보 ${cv.cands.length}개를 저마다 3~5번 다듬어(루바토를 따라) 견줌 — ${shown}${cv.cands.length > 4 ? ` 외 ${cv.cands.length - 4}개` : ''} → 박 간격에 견준 어긋남 · 박자 단순함 · 가사 한 줄 = 2마디를 함께 보고 고른 박: <b>${b.name.replace(/\(♩=\d+\)/, '')} ♩${Math.round(b.bpm || 0)}</b>${near ? ` (가장 가까운 다른 후보와 노래하는 박 ${Math.round(near.agree * 100)}% 겹침)` : ''}`;
+  }
+  if (song.hyps && song.hyps.length) h += `<br>마디 교차 검증: 첫 박 4 × 못갖춘마디 6 = 가설 24개(간주 뒤 구간은 0~7박 어긋남까지)를 견줘 가사 줄 첫 음이 2마디 줄 첫 박에 가장 잘 맞는 것으로`;
+  const c = song.count; if (c && (c.syllabic + c.neumatic + c.melismatic)) h += `<br>가사 붙임새: ${Object.keys(KIND).filter(k => c[k]).map(k => `${KIND[k]} <b>${c[k]}줄</b>`).join(' · ')}`;
+  return h;
+}
 function a2sBuild() {
   const r = A2.res; if (!r) return;
-  const grid = +$('#a2sGrid').value, g = a2sGrid();
-  const song = A2S.buildSong({ notes: r.notes, lyrics: $('#a2sLyr').value, beats: g.beats, bar1: g.bar1, grid, regions: r.regions, dp: !!r.midi });
-  A2.song = song; A2.grid = g;
+  const mode = $('#a2sGrid').value, g = a2sGrid();
+  const song = r.q ? A2Q.buildSongQ({ notes: r.notes, lyrics: $('#a2sLyr').value, beats: g.beats, regions: r.regions, mode, shift: r.shift })
+    : A2S.buildSong({ notes: r.notes, lyrics: $('#a2sLyr').value, beats: g.beats, bar1: g.bar1, grid: mode === 'auto' ? 2 : +mode, regions: r.regions, dp: !!r.midi });
+  A2.song = song; A2.grid = song && song.grid ? song.grid : g;
+  if (song && song.grid) r.cut = song.cut;
   if (!song) { $('#a2sOut').hidden = false; $('#a2sSum').innerHTML = '<em>노래 선율을 찾지 못했어요</em> — 노래(Vocals) 스템을 넣거나 다른 음원으로 해 봐요'; $('#a2sScore').innerHTML = ''; return; }
-  const key = detectKey(song.melody), bpm = Math.round(r.bpm);
+  const key = detectKey(song.melody), bpm = Math.round(!r.fixed && r.q && r.gridBpm ? r.gridBpm : r.bpm);
   A2.key = key;
   const lyrN = A2S.parseLyrics($('#a2sLyr').value).length, used = song.lines.filter(l => l.text).length;
   const P = C.PICKUPS[song.pickup];
   $('#a2sBpm').value = bpm;
   $('#a2sSum').innerHTML = `<b>♩=${bpm}</b> · <b>${C.KEYS[key].name}</b> · 노래는 원곡 <b>${song.firstBar + 1}마디</b>부터 · ${song.lines.length * 2}마디 · 음 ${song.melody.length}개${song.pickup ? ` · 못갖춘마디(${P})` : ''} · 분석: ${r.how}<br>` +
     (lyrN ? `가사 ${lyrN}줄을 음표에 붙였어요 → 플랫폼 줄(2마디)로 ${used}줄` : '<em>가사가 없어 음표만 만들었어요 — 위 칸에 가사를 붙여 넣고 다시 만들면 글자가 붙어요</em>') +
-    (r.tc.length > 1 ? ` · 빠르기 후보 ${r.tc.join(', ')}` : '') + (r.autoMul && r.autoMul !== 1 && r.mul === r.autoMul ? ` · 가사 한 줄이 2마디가 되게 ${r.midi ? 'MIDI ' : ''}빠르기를 ${r.autoMul < 1 ? '÷2' : '×2'}로 읽었어요` : '') + (r.cut ? ` · 간주에서 박 ${r.cut}개를 덜어 뒷 구간도 줄 첫 박에 맞췄어요` : '') + (r.midi && !A2.src ? ' · <em>원곡 MP3가 없어 악보 소리만 들을 수 있어요</em>' : '') + '<br><small>원곡과 함께 들어 보고 박이 어긋나면 빠르기(÷2·×2)와 첫 박을 고쳐요. 틀린 음은 새 곡으로 연 뒤 4·5단계에서 고쳐요.</small>';
+    (r.tc.length > 1 ? ` · 빠르기 후보 ${r.tc.join(', ')}` : '') + (r.autoMul && r.autoMul !== 1 && r.mul === r.autoMul ? ` · 가사 한 줄이 2마디가 되게 ${r.midi ? 'MIDI ' : ''}빠르기를 ${r.autoMul < 1 ? '÷2' : '×2'}로 읽었어요` : '') + (r.cut ? ` · 간주에서 박 ${r.cut}개를 덜어 뒷 구간도 줄 첫 박에 맞췄어요` : '') + (r.midi && !A2.src ? ' · <em>원곡 MP3가 없어 악보 소리만 들을 수 있어요</em>' : '') + a2sCheck(song) + '<br><small>원곡과 함께 들어 보고 박이 어긋나면 빠르기(÷2·×2)와 첫 박을 고쳐요. 틀린 음은 새 곡으로 연 뒤 4·5단계에서 고쳐요.</small>';
   const old = C.METER.pickup; C.METER.pickup = song.pickup;
   try {
     const mel = song.melody.map(n => ({ ...n, id: C.uid() }));
@@ -2114,7 +2155,7 @@ function a2sBuild() {
 }
 $('#a2sGrid').onchange = () => a2sBuild();
 $('#a2sLyr').addEventListener('change', () => { if (A2.res) a2sBuild(); });
-$('#a2sBpm').addEventListener('change', e => { const r = A2.res; if (!r) return; const v = +e.target.value; if (v >= 30 && v <= 220) { r.bpm = v; r.fixed = Math.abs(v - r.autoBpm * (r.mul || 1)) > .6; a2sBuild(); } });
+$('#a2sBpm').addEventListener('change', e => { const r = A2.res; if (!r) return; const v = +e.target.value; if (v >= 30 && v <= 220) { r.bpm = v; r.fixed = Math.abs(v - (r.q && r.gridBpm ? r.gridBpm : r.autoBpm * (r.mul || 1))) > .6; a2sBuild(); } });
 document.querySelector('.a2s-adj').addEventListener('click', e => {
   const b = e.target.closest('[data-a]'), r = A2.res; if (!b || !r) return;
   const a = b.dataset.a;
@@ -2135,10 +2176,10 @@ let a2sSrc = null;
 function a2sStop() { if (a2sSrc) { try { a2sSrc.stop(); } catch (x) { } a2sSrc = null; } SND.stop(); }
 function a2sPlay(both) {
   a2sStop(); const song = A2.song; if (!song) return;
-  if (!A2.src) { if (!both) return toast('원곡 MP3가 없어요 — 완성곡 칸에 MP3를 넣으면 같이 들을 수 있어요'); SND.play([{ inst: 'voice', vol: .95, notes: song.melody }], A2.res.bpm, { from: -song.pickup }); return; }
+  if (!A2.src) { if (!both) return toast('원곡 MP3가 없어요 — 완성곡 칸에 MP3를 넣으면 같이 들을 수 있어요'); SND.play([{ inst: 'voice', vol: .95, notes: song.melody }], A2.res.bpm, { from: -song.pickup, warp: a2sTimeOf }); return; }
   const c = SND.audio(), from = -song.pickup - (both ? 0 : C.BAR), at = Math.max(0, a2sTimeOf(from));
   const src = c.createBufferSource(); src.buffer = A2.src; const g = c.createGain(); g.gain.value = both ? .55 : .9; src.connect(g); g.connect(c.destination);
-  if (both) SND.play([{ inst: 'voice', vol: .95, notes: song.melody }], A2.res.bpm, { from });
+  if (both) SND.play([{ inst: 'voice', vol: .95, notes: song.melody }], A2.res.bpm, { from, warp: a2sTimeOf }); // 박 지도대로(루바토를 따라) 친다
   src.start(c.currentTime + .12, at); a2sSrc = src;
 }
 $('#a2sUse').onclick = () => {
@@ -2148,8 +2189,8 @@ $('#a2sUse').onclick = () => {
     const old = S; S = blank(); S.group = old.group; S.roles = old.roles; S.mode = old.mode;
     const srcF = A2.mix || A2.vox || A2.midi.file;
     S.title = (A2.tag && A2.tag.title) || (A2.midi ? A2.midi.file.name.replace(/\s*\([^()]*\)\s*\.midi?$/i, '') : srcF.name).replace(/\.[^.]+$/, '').slice(0, 40);
-    S.tempo = Math.max(40, Math.min(200, Math.round(A2.res.bpm)));
-    S.key = A2.key; S.pickup = song.pickup; C.METER.pickup = S.pickup; S.grid = +$('#a2sGrid').value;
+    S.tempo = Math.max(40, Math.min(200, Math.round(+$('#a2sBpm').value || A2.res.bpm)));
+    S.key = A2.key; S.pickup = song.pickup; C.METER.pickup = S.pickup; S.grid = $('#a2sGrid').value === 'auto' ? (song.melody.some(n => n.s % 2 || n.d % 2) ? 1 : 2) : +$('#a2sGrid').value;
     S.lyrics = song.lines.map(l => ({ text: l.text, chorus: !!l.chorus }));
     S.melody = song.melody.map(n => ({ id: C.uid(), p: n.p, s: n.s, d: n.d, lx: n.lx }));
     const tu = 60 / S.tempo / 4;

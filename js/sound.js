@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=12';
+import { BAR } from './core.js?v=13';
 
 let ctx = null, master = null;
 export function audio() {
@@ -203,10 +203,12 @@ function flatten(tracks, from, to) {
   }
   return ev.sort((a, b) => a.n.s - b.n.s);
 }
-function playOne(c, out, e, tempo, t0, from, to, clip = true) {
+function playOne(c, out, e, tempo, t0, from, to, clip = true, warp = null) {
   const u = 60 / tempo / 4, { tr, n, vol } = e;
-  const t = t0 + (n.s - from) * u;
-  const d = (clip ? Math.min(n.d, to - n.s) : n.d) * u * (tr.inst === 'voice' ? .96 : .92);
+  const len = clip ? Math.min(n.d, to - n.s) : n.d;
+  // warp(칸 → 초): 박 지도대로 칠 때(음원으로 악보 만들기에서 원곡과 함께 — 루바토를 따라간다)
+  const t = warp ? t0 + warp(n.s) - warp(from) : t0 + (n.s - from) * u;
+  const d = (warp ? warp(n.s + len) - warp(n.s) : len * u) * (tr.inst === 'voice' ? .96 : .92);
   if (tr.inst === 'drum') (n.kit || [n.k || 'x']).forEach(k => drum(c, out, DRUMP[k] ?? n.p, t, vol));
   else (n.chord || [n.p]).forEach(p => voice(c, out, tr.inst, p, t, d, vol));
   return t + d;
@@ -225,15 +227,15 @@ export function play(tracks, tempo, opts = {}) {
   const c = audio();
   const bus = c.createGain(); bus.connect(master);
   const from = opts.from ?? Math.min(0, ...tracks.map(t => t.notes.reduce((a, n) => Math.min(a, n.s), 0))), to = opts.to ?? Infinity; // 전주·못갖춘마디(음수 자리)부터
-  const ev = flatten(tracks, from, to), u = 60 / tempo / 4;
+  const ev = flatten(tracks, from, to), u = 60 / tempo / 4, warp = opts.warp || null;
   const endU = ev.reduce((a, e) => Math.max(a, Math.min(e.n.s + e.n.d, to)), from);
-  const t0 = c.currentTime + .12;
-  const len = Math.max((endU - from) * u, (to === Infinity ? 0 : to - from) * u);
+  const t0 = c.currentTime + .12, at = s => warp ? warp(s) - warp(from) : (s - from) * u;
+  const len = Math.max(at(endU), to === Infinity ? 0 : at(to));
   const me = { bus, t0, from, tempo, len, onend: opts.onend, i: 0, pump: null };
   const pump = () => {
     if (playing !== me) return;
     const horizon = c.currentTime + 1.5;
-    while (me.i < ev.length && t0 + (ev[me.i].n.s - from) * u < horizon) { playOne(c, bus, ev[me.i], tempo, t0, from, to); me.i++; }
+    while (me.i < ev.length && t0 + at(ev[me.i].n.s) < horizon) { playOne(c, bus, ev[me.i], tempo, t0, from, to, true, warp); me.i++; }
     if (me.i < ev.length) me.pump = setTimeout(pump, 200);
   };
   playing = me; pump();

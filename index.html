@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=12">
+<link rel="stylesheet" href="app.css?v=13">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -469,7 +469,7 @@
       <label class="drop sm" id="a2sDrop2"><input type="file" id="a2sVox" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mid,.midi,.zip,audio/*"><b>노래(Vocals) 스템 <small>선택 · MP3 또는 MIDI</small></b><span>수노 Get Stems → Vocals (MIDI 받기도 돼요)</span><em id="a2sName2">없어도 돼요</em></label>
     </div>
     <label class="fld"><span>가사 <small>MP3 안의 가사를 저절로 읽어요 · [Verse]·[Chorus] 같은 표시는 그대로 두면 구간과 후렴을 알아봐요</small></span><textarea id="a2sLyr" rows="5" placeholder="가사를 통째로 붙여 넣어요 (줄마다 한 소절)"></textarea></label>
-    <div class="row a2s-run"><label class="ctl"><span>박 맞춤</span><select id="a2sGrid"><option value="2">8분음표</option><option value="1">16분음표</option></select></label><button class="btn" type="button" id="a2sGo" disabled>악보 만들기</button><span class="hint" id="a2sState">MP3를 넣어 주세요</span></div>
+    <div class="row a2s-run"><label class="ctl"><span>박 맞춤</span><select id="a2sGrid" title="자동: 박마다 4분·8분·16분 중 가장 단순하면서 맞는 자리로"><option value="auto">자동(박마다)</option><option value="2">8분음표</option><option value="1">16분음표</option></select></label><button class="btn" type="button" id="a2sGo" disabled>악보 만들기</button><span class="hint" id="a2sState">MP3를 넣어 주세요</span></div>
     <div class="a2s-prog" aria-hidden="true"><i id="a2sBar"></i></div>
     <div id="a2sOut" hidden>
       <p class="a2s-sum" id="a2sSum"></p>
@@ -505,6 +505,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=12"></script>
+<script type="module" src="js/app.js?v=13"></script>
 </body>
 </html>

@@ -235,7 +235,7 @@ export function parseLyrics(text) {
   }
   return secs.filter(s => s.lines.length).flatMap(s => s.lines.map(t => ({ text: t, sec: s.name, chorus: s.chorus })));
 }
-const sylOf = t => [...t].filter(ch => /[\p{L}\p{N}]/u.test(ch));
+export const sylOf = t => [...t].filter(ch => /[\p{L}\p{N}]/u.test(ch));
 
 // 가사 줄 ↔ 음표 맞추기: 줄마다 음 묶음을 고르고(남는 음은 간주·반주로 보고 뺀다), 줄 안에서는 새로 치는 음에 글자를 붙인다
 export function alignLyrics(notes, lines, { longCue = false } = {}) {
@@ -411,10 +411,11 @@ export function vocalRegions(vad, { thr = .45, minLen = 2.5, join = 2.5 } = {}) 
   const m = []; for (const r of out) { const l = m[m.length - 1]; if (l && r[0] - l[1] < join) l[1] = r[1]; else m.push([...r]); }
   return m.filter(r => r[1] - r[0] >= minLen);
 }
-const INSTR = /intro|interlude|instrumental|solo|break|bridge.*inst|간주|전주|후주/i;
+export const INSTR = /intro|interlude|instrumental|solo|break|bridge.*inst|간주|전주|후주/i;
 // 가사 묶음(연속으로 부르는 구간들) ↔ 노래 구간을 차례로 짝짓고, 묶음 안에서는 글자 수 비율과 쉼 자리로 줄을 나눈다
-export function alignByRegions(notes, lines, regions, rawText = '', { dp = false } = {}) {
-  if (!lines.length || !notes.length) return { lines: [] };
+// 가사 묶음 ↔ 노래 구간: 간주 표시·빈 줄(연)로 줄을 묶고, 묶음마다 노래 구간 하나를 짝짓는다
+export function lyricGroups(notes, lines, regions, rawText = '') {
+  if (!lines.length || !regions || !regions.length) return [];
   // 묶음: 악기만 나오는 표시([Interlude] 등)가 있으면 그 앞뒤를 나눈다
   const groups = []; let g = null, lastSec = null;
   const tags = []; String(rawText).replace(/\r/g, '').split('\n').forEach(ln => { const t = ln.trim().match(/^\[([^\]]*)\]$/); if (t) tags.push(t[1]); });
@@ -458,9 +459,14 @@ export function alignByRegions(notes, lines, regions, rawText = '', { dp = false
   const noteGapSplit = r => { const ns = notes.filter(x => x.t >= r[0] && x.t < r[1]); let best = null, bg = 0; for (let i = 1; i < ns.length; i++) { const gp = ns[i].t - (ns[i - 1].t + ns[i - 1].d); if (gp > bg) { bg = gp; best = ns[i].t - gp / 2; } } return best ?? (r[0] + r[1]) / 2; };
   while (R.length > groups.length) { let k = 0; R.forEach((r, i) => { if (r[1] - r[0] < R[k][1] - R[k][0]) k = i; }); R.splice(k, 1); }
   while (R.length < groups.length && R.length) { let k = 0; R.forEach((r, i) => { if (r[1] - r[0] > R[k][1] - R[k][0]) k = i; }); const m = noteGapSplit(R[k]); R.splice(k, 1, [R[k][0], m], [m, R[k][1]]); }
+  return groups.map((gr, gi) => ({ idx: gr.idx, r: R[gi] })).filter(gr => gr.r);
+}
+export function alignByRegions(notes, lines, regions, rawText = '', { dp = false } = {}) {
+  if (!lines.length || !notes.length) return { lines: [] };
+  const syl = lines.map(l => sylOf(l.text).length);
   const res = [];
-  groups.forEach((gr, gi) => {
-    const r = R[gi]; if (!r) return;
+  lyricGroups(notes, lines, regions, rawText).forEach(gr => {
+    const r = gr.r;
     let ns = notes.filter(x => x.t + x.d * .5 >= r[0] - .3 && x.t < r[1] + .3);
     // 구간 앞뒤의 흐린 음(반주가 섞인 곳)은 덜어 낸다
     const strong = x => x.vad == null || (x.vad >= .55 && x.d >= .15);

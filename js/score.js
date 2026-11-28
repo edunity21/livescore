@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=12';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=13';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -82,7 +82,14 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
     const at = (s, k, txt, noteOnly) => { const q = pieces.find(x => x.s >= s && x.s < s + BAR * 2 && (!noteOnly || x.p != null)); if (q) pre.set(q, (pre.get(q) || '') + (k === 'tech' ? `"^${txt.replace(/"/g, '')}"` : `!${txt}!`)); };
     (v.tech || []).forEach(t => at(t.s, 'tech', t.text, false));
     (v.dyn || []).forEach(d => at(d.s, 'dyn', d.m, true));
-    return { v, pieces, pre };
+    // 이음줄: 한 글자를 여러 음에 늘여 부르는 곳(네우마·멜리스마) — 글자 음부터 마지막 늘임 음까지
+    const slA = new Set(), slB = new Set();
+    if (v.lyrics && !v.drum) {
+      const refs = []; pieces.forEach(q => { if (q.p != null && q.ref && refs[refs.length - 1] !== q.ref) refs.push(q.ref); });
+      const ext = r => { const m = v.lyrics.map.get(r.id); return !!(m && m.kind === 'ext'); };
+      refs.forEach((r, i) => { const nx = refs[i + 1]; if (!ext(r) && nx && ext(nx)) slA.add(r); if (ext(r) && (!nx || !ext(nx)) && i > 0) slB.add(r); });
+    }
+    return { v, pieces, pre, slA, slB };
   });
   // 줄마다 마디: 보통은 perLine 마디씩, 파트보(multirest)는 이어진 빈 마디를 여러 마디 쉼표(Z) 한 칸으로 센다
   const lineBars = [];
@@ -100,7 +107,7 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
     for (let b0 = intro ? first : 0; b0 < bars; b0 += perLine) { const b1 = Math.min(bars, b0 + perLine), sg = []; for (let b = b0 === 0 && pickup ? -1 : b0; b < b1; b++) sg.push({ b, z: 1 }); lineBars.push(sg); }
   }
   lineBars.forEach((segs, li) => {
-    vp.forEach(({ v, pieces, pre }, vi) => {
+    vp.forEach(({ v, pieces, pre, slA, slB }, vi) => {
       let mus = `[V:${v.id}] ` + (li === 0 && v.drum ? '[K:none clef=perc] ' : ''); // 타악기 보표에는 조표를 적지 않는다
       const lyr = [], local = [];
       const dsp = p => p + (v.disp || 0); // 옥타브 위로 적는 악기(기타·베이스)
@@ -135,8 +142,9 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
             tok += '!style=rhythm!B' + q.d;
           } else if (q.ref && q.ref.chord && q.ref.chord.length > 1) {
             tok += '[' + [...q.ref.chord].sort((x, y) => x - y).map(p => abcPitch(dsp(p), v.key || key, bar)).join('') + ']' + q.d;
-          } else tok += abcPitch(dsp(q.p), v.key || key, bar) + q.d;
+          } else tok += (slA.has(q.ref) && !q.tiePrev ? '(' : '') + abcPitch(dsp(q.p), v.key || key, bar) + q.d;
           if (q.tieNext) tok += '-';
+          else if (slB.has(q.ref)) tok += ')';
           mus += tok;
           if (v.lyrics) {
             if (q.tiePrev) lyr.push('_');
@@ -224,6 +232,12 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
     const id = 'P' + (i + 1);
     x += `  <part id="${id}">\n`;
     const pieces = toPieces(p.drum ? p.notes.map(n => ({ ...n, chord: undefined })) : p.notes, total, start);
+    const slA = new Set(), slB = new Set(); // 이음줄(네우마·멜리스마)
+    if (p.lyrics && !p.drum) {
+      const refs = []; pieces.forEach(q => { if (q.p != null && q.ref && refs[refs.length - 1] !== q.ref) refs.push(q.ref); });
+      const ext = r => { const m = p.lyrics.map.get(r.id); return !!(m && m.kind === 'ext'); };
+      refs.forEach((r, i) => { const nx = refs[i + 1]; if (!ext(r) && nx && ext(nx)) slA.add(r); if (ext(r) && (!nx || !ext(nx)) && i > 0) slB.add(r); });
+    }
     const disp = p.disp || 0;
     // 이조 악기(클라리넷·트럼펫·색소폰): 기보음과 그 조표로 적고 <transpose>로 실음을 알려 준다 — 뮤즈스코어 '실음 보기'도 맞게
     const tr = p.drum ? 0 : p.trans || 0, pkey = tr ? shiftKey(key, tr) : key, pk = KEYS[pkey] || k;
@@ -266,7 +280,8 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         }
         const tie = (q.tiePrev ? '<tie type="stop"/>' : '') + (q.tieNext ? '<tie type="start"/>' : '');
         const tied = (q.tiePrev ? '<tied type="stop"/>' : '') + (q.tieNext ? '<tied type="start"/>' : '');
-        const notations = tied ? `<notations>${tied}</notations>` : '';
+        const slur = (slA.has(q.ref) && !q.tiePrev ? '<slur type="start" number="1" placement="above"/>' : '') + (slB.has(q.ref) && !q.tieNext ? '<slur type="stop" number="1"/>' : '');
+        const notations = tied || slur ? `<notations>${tied}${slur}</notations>` : '';
         if (p.drum) {
           (q.ref.kit || ['kick']).forEach((kk, j) => {
             const [st, oc] = DRUM_X[kk] || DRUM_X.snare;

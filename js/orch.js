@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=12';
+import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=13';
 
 // cat: 편성 칸 묶음 · disp: 적는 음 옥타브(리코더는 한 옥타브 아래로 적는다) · trans: 이조 악기(기보음 = 실음 + trans, 파트보에서 쓴다)
 export const ENS = {
