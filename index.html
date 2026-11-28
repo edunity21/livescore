@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -114,7 +114,7 @@
 
 <!-- 2 가사 쓰기 -->
 <section class="step" data-step="2" aria-labelledby="h2" hidden>
-  <div class="step-head"><p class="kicker">STEP 2 · 1차시 15~25분</p><h1 id="h2">가사 쓰기</h1><p class="one">노랫말을 쓰면 글자가 음절로 나뉘고, 한 줄이 두 마디로 배치됩니다.</p></div>
+  <div class="step-head"><p class="kicker">STEP 2 · 1차시 15~25분</p><h1 id="h2">가사 쓰기</h1><p class="one" id="s2one">노랫말을 쓰면 글자가 음절로 나뉘고, 한 줄이 두 마디로 배치됩니다.</p></div>
   <div class="grid2">
     <div class="card">
       <h2>노랫말 쓰기</h2>
@@ -124,7 +124,7 @@
     </div>
     <div class="card">
       <h2>음절 나누기 · 마디 배치</h2>
-      <p class="sub">글자 1개 = 음표 1개 · 한 줄 = 2마디</p>
+      <p class="sub" id="s2sub">글자 1개 = 음표 1개 · 한 줄 = 2마디</p>
       <div id="sylView" class="syl-view"></div>
       <div class="sum" id="sylSum"></div>
     </div>
@@ -136,9 +136,9 @@
   <div class="step-head"><p class="kicker">STEP 3 · 2차시 15분</p><h1 id="h3">선율 연주</h1><p class="one" id="s3one">예비박 네 번 뒤 건반으로 노래를 연주하면, 누른 음이 막대로 실시간 기록됩니다.</p></div>
   <div class="card">
     <div class="ctrl">
-      <div class="ctl"><span>박자</span><b class="chip on">4/4</b></div>
       <label class="ctl tempo"><span>빠르기</span><input type="range" id="tempo" min="60" max="140" step="1" value="92"><b id="tempoV">♩=92</b></label>
       <label class="ctl"><span>조성</span><select id="keySel"><option value="C">다장조 (C)</option><option value="G">사장조 (G)</option><option value="D">라장조 (D)</option><option value="A">가장조 (A)</option><option value="E">마장조 (E)</option><option value="B">나장조 (B)</option><option value="F#">올림바장조 (F♯)</option><option value="Gb">내림사장조 (G♭)</option><option value="Db">내림라장조 (D♭)</option><option value="Ab">내림가장조 (A♭)</option><option value="Eb">내림마장조 (E♭)</option><option value="Bb">내림나장조 (B♭)</option><option value="F">바장조 (F)</option></select></label>
+      <label class="ctl"><span>박자 <small>홑·겹·혼합박자</small></span><select id="meterSel" aria-label="박자"></select></label>
       <label class="ctl"><span>첫 마디 <small>여린내기면 못갖춘마디</small></span><select id="pickSel"><option value="0">갖춘마디 (1박부터)</option><option value="2">못갖춘마디 · 반 박</option><option value="4">못갖춘마디 · 1박</option><option value="6">못갖춘마디 · 1박 반</option><option value="8">못갖춘마디 · 2박</option><option value="12">못갖춘마디 · 3박</option></select></label>
       <label class="ctl"><span>메트로놈</span><input type="checkbox" id="metro" checked><b class="sw" aria-hidden="true"></b></label>
       <label class="ctl"><span>녹음 시작 위치</span><select id="recFrom"><option value="0">1줄 (1마디)부터</option></select></label>
@@ -505,6 +505,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=15"></script>
+<script type="module" src="js/app.js?v=16"></script>
 </body>
 </html>

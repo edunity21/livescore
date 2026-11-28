@@ -1,6 +1,6 @@
 // 뮤즈스코어 연동: MusicXML(.musicxml · .xml · .mxl) 읽기
 // 뮤즈스코어에서 고친 악보를 다시 불러와 선율·가사·빠르기·조·못갖춘마디를 플랫폼 곡으로 되살린다
-import { unzipMidi } from './midi.js?v=15';
+import { unzipMidi } from './midi.js?v=16';
 
 const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const FIFTHS = { 0: 'C', 1: 'G', 2: 'D', 3: 'A', 4: 'E', 5: 'B', 6: 'F#', '-1': 'F', '-2': 'Bb', '-3': 'Eb', '-4': 'Ab', '-5': 'Db', '-6': 'Gb', 7: 'Db', '-7': 'B' };
@@ -36,7 +36,7 @@ export function parse(xmlText) {
       if (attr) {
         if (kid(attr, 'divisions')) div = +txt(attr, 'divisions') || div;
         const k = kid(attr, 'key'); if (k && fifths == null && pi === 0) fifths = +txt(k, 'fifths') || 0;
-        const t = kid(attr, 'time'); if (t && !meter) meter = [+txt(t, 'beats') || 4, +txt(t, 'beat-type') || 4];
+        const t = kid(attr, 'time'); if (t && !meter) { const bt = String(txt(t, 'beats') || '4'); meter = [bt.split('+').reduce((a, v) => a + (+v || 0), 0) || 4, +txt(t, 'beat-type') || 4, bt]; }
         const trn = kid(attr, 'transpose'); if (trn) tr = (+txt(trn, 'chromatic') || 0) + 12 * (+txt(trn, 'octave-change') || 0);
       }
       m.querySelectorAll('sound[tempo]').forEach(snd => { if (!tempo) tempo = +snd.getAttribute('tempo'); });
@@ -81,13 +81,13 @@ export function melodyPart(sc) {
 }
 
 // 플랫폼 곡으로: 2마디 한 줄 가사(낱말 띄어쓰기는 syllabic로 되살림) + 음표(lx)
-export function toSong(sc, part, { pickups = [0, 2, 4, 6, 8, 12] } = {}) {
+export function toSong(sc, part, { pickups = [0, 2, 4, 6, 8, 12], line = 32, lineBars = 2 } = {}) {
   const P = pickups.reduce((a, v) => Math.abs(v - sc.pickup) < Math.abs(a - sc.pickup) ? v : a, 0);
   let notes = part.notes.filter(n => n.s >= -P).map(n => ({ ...n, s: Math.round(n.s), d: Math.max(1, Math.round(n.d)) }));
-  const lineOf = s => Math.floor((s + P) / 32);
+  const lineOf = s => Math.floor((s + P) / line);
   // 노래가 나오기 전의 빈 줄(전주 마디)은 덜어 낸다 — 전주는 6단계 편곡에서 다시 붙인다
   const lead = notes.length ? Math.max(0, lineOf(Math.min(...notes.map(n => n.s)))) : 0;
-  if (lead) notes = notes.map(n => ({ ...n, s: n.s - lead * 32 }));
+  if (lead) notes = notes.map(n => ({ ...n, s: n.s - lead * line }));
   const nLines = Math.max(1, notes.length ? lineOf(Math.max(...notes.map(n => n.s))) + 1 : 1);
   const lines = Array.from({ length: nLines }, () => ({ text: '', chorus: false }));
   const melody = []; const seen = new Set();
@@ -105,5 +105,5 @@ export function toSong(sc, part, { pickups = [0, 2, 4, 6, 8, 12] } = {}) {
   // 가사가 하나도 없는 악보: 모든 음을 글자 자리로
   if (!part.notes.some(n => n.ly && n.ly.t)) melody.forEach(m => { m.lx = 'n'; });
   lines.forEach(l => { l.text = l.text.replace(/\s+/g, ' ').trim(); });
-  return { melody, lines, pickup: P, introBars: lead * 2 };
+  return { melody, lines, pickup: P, introBars: lead * lineBars };
 }

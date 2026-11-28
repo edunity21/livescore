@@ -1,8 +1,8 @@
 // LIVE SCORE · 교사용 모아보기 — 모둠 프로젝트 파일(.json) 여러 개를 이 브라우저 안에서만 읽어 한눈에
-import * as C from './core.js?v=15';
-import * as SC from './score.js?v=15';
-import * as SND from './sound.js?v=15';
-import { RUBRIC, LEVELS } from './plus.js?v=15';
+import * as C from './core.js?v=16';
+import * as SC from './score.js?v=16';
+import * as SND from './sound.js?v=16';
+import { RUBRIC, LEVELS } from './plus.js?v=16';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -88,7 +88,7 @@ function render() {
     return `<tr data-i="${i}" class="${sel === i ? 'on' : ''}"><td>${S.photo ? `<img class="t-ph" src="${S.photo}" alt="">` : ''}<b>${esc(S.group || '—')}</b></td><td>${esc(S.title || '(제목 없음)')}</td>
       <td><div class="dots">${A.done.map((d, k) => `<i class="${d ? 'd' : ''}" title="${k + 1}. ${STEPN[k + 1]}">${k + 1}</i>`).join('')}</div></td>
       <td>${(S.lyrics || []).length}줄 · ${A.syl}음절${A.badLines ? ` <span class="pill warn">${A.badLines}줄 어긋남</span>` : ''}</td>
-      <td>${(S.melody || []).length}음 · ${A.bars}마디</td><td>${esc((C.KEYS[S.key] || C.KEYS.C).name)} · ♩=${S.tempo || 92}</td>
+      <td>${(S.melody || []).length}음 · ${A.bars}마디</td><td>${esc((C.KEYS[S.key] || C.KEYS.C).name)} · ${C.meterLabel(S.meter || '4/4')} · ${C.tempoText(S.tempo || 92, S.meter)}</td>
       <td>${v ? `<span class="pill">${esc(v.id)}</span> ${esc(v.name)}` : '<span class="sub">—</span>'}</td>
       <td>${(S.log || []).length}회 <small>${A.mine} : ${A.ai}</small></td>
       <td>${A.rub == null ? '<span class="sub">—</span>' : `${A.rub.toFixed(1)} <small>/ 2 · ${A.rubN}문항</small>`}</td></tr>`;

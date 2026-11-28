@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=15';
-import * as SC from './score.js?v=15';
-import * as SND from './sound.js?v=15';
+import * as C from './core.js?v=16';
+import * as SC from './score.js?v=16';
+import * as SND from './sound.js?v=16';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -34,7 +34,7 @@ export function createEditor(host, opts) {
   const SPEEDS = [.5, .6, .7, .75, .8, .9, 1, 1.1, 1.25, 1.5];
   function speedUI() {
     const m = E.model, b = host.querySelector('.ed-spv');
-    b.textContent = `${Math.round(E.speed * 100)}%` + (m && m.tempo ? ` · ♩=${Math.round(m.tempo * E.speed)}` : '');
+    b.textContent = `${Math.round(E.speed * 100)}%` + (m && m.tempo ? ` · ${C.tempoText(m.tempo * E.speed)}` : '');
     host.querySelector('.ed-speed').classList.toggle('on', E.speed !== 1);
   }
   function setSpeed(dir) {

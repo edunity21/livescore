@@ -87,8 +87,8 @@ export function createMic(SND, { onOn, onOff, onPitch }) {
 
 // ── 노래방·발표 모드 ──
 // lines: [{text, chorus, syl:[{t, s, e}]}]  tracks(withVoice) → 재생 트랙
-export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineOf = s => Math.floor(s / 32), photo = null }) {
-  const BAR = 16, LEAD = BAR;
+export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineOf = s => Math.floor(s / 32), photo = null, bar = 16, beats = [0, 4, 8, 12] }) {
+  const BAR = bar, LEAD = BAR; // 예비박 한 마디(박자대로)
   const el = document.createElement('div');
   el.className = 'kara'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', '노래방·발표 모드');
   el.innerHTML = `<div class="kara-top"><div><b>${esc(title)}</b><small>${esc(sub)}</small></div>
@@ -110,7 +110,7 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineO
     const raw = SND.position();
     if (raw == null) { cnt.textContent = ''; return; }
     const pos = raw - LEAD + st;
-    if (raw < LEAD) { cnt.textContent = String(4 - Math.floor(raw / 4)); show(0); }
+    if (raw < LEAD) { cnt.textContent = String(beats.length + 1 - beats.filter(b => b <= raw).length); show(0); }
     else cnt.textContent = pos < 0 && st < 0 && pos < -BAR / 4 ? '♪' : '';
     const i = Math.max(0, Math.min(lines.length - 1, lineOf(Math.max(0, pos))));
     if (i !== li) show(i);
@@ -128,7 +128,7 @@ export function openKaraoke({ title, sub, tempo, lines, tracks, SND, bars, lineO
     msg.textContent = !withVoice && !base.length ? '아직 반주가 없어요 — 6단계에서 편곡을 고르면 반주가 나와요. 지금은 박만 세어 줍니다.' : '';
     st = Math.min(0, ...base.flatMap(t => t.notes.map(n => n.s)));
     const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD - st })) }));
-    tr.push({ inst: 'click', notes: [0, 4, 8, 12].map(s => ({ p: s ? 84 : 96, s, d: 1 })), vol: .9 });
+    tr.push({ inst: 'click', notes: beats.map((s, i) => ({ p: i ? 84 : 96, s, d: 1 })), vol: .9 });
     SND.play(tr, tempo, { from: 0, to: LEAD - st + bars * BAR, onend: () => { cancelAnimationFrame(raf); cnt.textContent = ''; } }); // 반주가 짧거나 없어도 곡 끝까지
     cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
   }
@@ -204,7 +204,7 @@ table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{border-bottom:1
 <div class="bar"><small>인쇄 창에서 'PDF로 저장'을 고르면 포트폴리오 파일이 됩니다.</small><button onclick="print()">인쇄 · PDF로 저장</button></div>
 <main class="page">
 <header>${d.photo ? `<img class="ph" src="${d.photo}" alt="모둠 사진">` : ''}<div><p class="k">LIVE SCORE · 창작 과정 보고서</p><h1>${esc(d.title)}</h1><div class="roles">${roles}</div></div>
-<div class="meta">${esc(d.group || '')}<br>${esc(d.keyName)} · ♩=${d.tempo} · ${d.bars}마디<br>${esc(d.date)}</div></header>
+<div class="meta">${esc(d.group || '')}<br>${esc(d.keyName)}${d.meter ? ' · ' + esc(d.meter) : ''} · ${esc(d.tempoText || '♩=' + d.tempo)} · ${d.bars}마디<br>${esc(d.date)}</div></header>
 <h2><i>1</i>노랫말과 장면</h2>
 <div class="two"><div class="box"><ol class="lyr">${d.lyrics.map(l => `<li class="${l.chorus ? 'ch' : ''}">${esc(l.text) || '<span class="mu">(빈 줄)</span>'}</li>`).join('')}</ol></div>
 <div class="box"><p><b>들을 사람과 장면</b></p><p class="q">${esc(d.scene) || '<span class="mu">—</span>'}</p><p style="margin-top:8px"><b>고른 편곡</b> ${esc(d.verName || '—')}</p><p class="prog">${esc(d.prog || '')}</p><p style="margin-top:8px"><b>고른 이유</b></p><p class="q">${esc(d.why) || '<span class="mu">—</span>'}</p></div></div>

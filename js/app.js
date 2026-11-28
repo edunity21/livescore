@@ -1,17 +1,17 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=15';
-import * as SND from './sound.js?v=15';
-import * as MIDI from './midi.js?v=15';
-import * as SC from './score.js?v=15';
-import * as HUM from './hum.js?v=15';
+import * as C from './core.js?v=16';
+import * as SND from './sound.js?v=16';
+import * as MIDI from './midi.js?v=16';
+import * as SC from './score.js?v=16';
+import * as HUM from './hum.js?v=16';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=15';
-import * as PLUS from './plus.js?v=15';
-import * as ORCH from './orch.js?v=15';
-import * as CAM from './cam.js?v=15';
-import * as A2S from './a2s.js?v=15';
-import * as A2Q from './a2q.js?v=15';
-import * as MXL from './mxl.js?v=15';
+import { createEditor, activeEditor } from './editor.js?v=16';
+import * as PLUS from './plus.js?v=16';
+import * as ORCH from './orch.js?v=16';
+import * as CAM from './cam.js?v=16';
+import * as A2S from './a2s.js?v=16';
+import * as A2Q from './a2q.js?v=16';
+import * as MXL from './mxl.js?v=16';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -28,7 +28,7 @@ const durLabel = d => DUR[d] || (d / 4) + '박';
 function blank() {
   return {
     v: 1, title: '', group: '', reflect: { items: {}, good: '', next: '' }, roles: { lyric: '', compose: '', arrange: '', record: '', present: '' }, mode: 'keys',
-    tempo: 92, key: 'C', pickup: 0, lyrics: [0, 1, 2, 3].map(() => ({ text: '', chorus: false })), take: null, grid: 2, melody: [],
+    tempo: 92, key: 'C', meter: '4/4', pickup: 0, lyrics: [0, 1, 2, 3].map(() => ({ text: '', chorus: false })), take: null, grid: 2, melody: [],
     arr: { settings: { genre: 'pop', mood: 'bright', inst: ['drums', 'bass', 'keys', 'guitar'], ens: ORCH.defaultEns(), intro: 2, range: 'far', perBar: 'auto' }, versions: [], chosen: null, scene: '', why: '', nv: null },
     base: null, decisions: {}, log: [], step: 1, made: false,
   };
@@ -46,7 +46,8 @@ function migrate(x) { // 예전 프로젝트: 악기 고르기 → 편성(인원
   if (st.perBar == null) st.perBar = 'auto';
   st.ens = { ...ORCH.defaultEns(), ...Object.fromEntries(Object.keys(ORCH.defaultEns()).filter(k => k !== 'vocal').map(k => [k, 0])), ...st.ens };
   if (x.pickup == null) x.pickup = 0;
-  C.METER.pickup = x.pickup;
+  if (!x.meter || !C.METERS[x.meter]) x.meter = '4/4'; // 예전 곡은 4/4
+  C.setMeter(x.meter); C.METER.pickup = x.pickup;
   return x;
 }
 const U = { step: S.step || 1, sel: null, lySel: null, hist: [], rec: null, bar: null, pick: null, tab: 'auto', suno: { tracks: [], cfg: null }, audio: {}, mpos: null, mdur: 4, soundOk: false, playBtn: null, viewer: null };
@@ -70,9 +71,13 @@ function undo() { if (!U.hist.length) return toast('되돌릴 것이 없어요')
 
 function totalBars() {
   const end = Math.max(0, ...S.melody.map(n => n.s + n.d));
-  return Math.max(2, S.lyrics.length * 2, Math.ceil(end / C.BAR));
+  return Math.max(2, S.lyrics.length * C.METER.lineBars, Math.ceil(end / C.BAR));
 }
 const units = () => totalBars() * C.BAR;
+const LB = () => C.METER.lineBars; // 가사 한 줄 마디 수(4/4는 2)
+const tempoLabel = t => { const m = C.tempoMark(t); return `${m.unit}=${m.bpm}`; };
+// 메트로놈 클릭 자리(초): 예비 한 마디 + bars마디, 마디마다 박 시작 — 첫 박 강세
+function clickTimes(tempo, start, bars) { const tu = 60 / tempo / 4, bs = C.beatStarts(), out = []; for (let b = 0; b < bars + 1; b++) bs.forEach((x, i) => out.push({ t: start + (b * C.BAR + x) * tu, acc: i === 0, pre: b === 0 })); return out; }
 const chosen = () => S.arr.versions.find(v => v.id === S.arr.chosen) || null;
 const vlab = v => (v && v.source === 'suno' ? 'AI' : '편곡');
 const roleName = r => (S.roles[r] ? `${ROLE[r]}(${S.roles[r]})` : ROLE[r]);
@@ -151,8 +156,9 @@ function drawRoll(cv, o) {
     if (black) { g.fillStyle = '#f4f4f4'; g.fillRect(L, y(p), W - L - R, rowH); }
     if (C.pc(p) === 0) { g.fillStyle = '#6e6e6e'; g.font = '10px "Noto Sans KR",sans-serif'; g.textBaseline = 'middle'; g.fillText('도' + (Math.floor(p / 12) - 1), 3, y(p) + rowH / 2); g.fillStyle = '#e3e3e3'; g.fillRect(L, y(p) + rowH - .5, W - L - R, .5); }
   }
-  for (let u = Math.ceil(from / 4) * 4; u <= from + U16; u += 4) {
-    const bar = u % C.BAR === 0;
+  const BS = C.beatStarts(), grid = []; for (let b = Math.floor(from / C.BAR); b * C.BAR <= from + U16; b++) BS.forEach(x => { const u = b * C.BAR + x; if (u >= from && u <= from + U16) grid.push(u); });
+  for (const u of grid) {
+    const bar = ((u % C.BAR) + C.BAR) % C.BAR === 0;
     g.fillStyle = bar ? '#9a9a9a' : '#e6e6e6'; g.fillRect(Math.round(x(u)) - (bar ? .5 : 0), T - (bar ? 6 : 0), bar ? 1 : 1, H - T - B + (bar ? 6 : 0));
     if (bar && u < from + U16) { g.fillStyle = '#111'; g.font = '700 10px Archivo,"Noto Sans KR",sans-serif'; g.textBaseline = 'alphabetic'; g.fillText((u / C.BAR + 1) + '', x(u) + 3, T - 8); }
   }
@@ -161,7 +167,7 @@ function drawRoll(cv, o) {
       const a = C.lineStart(i); if (a < from || a >= from + U16) return;
       const txt = C.syllables(ln.text).join(' ');
       g.fillStyle = ln.chorus ? '#31684F' : '#6e6e6e'; g.font = '11px "Noto Sans KR",sans-serif';
-      g.save(); g.beginPath(); g.rect(x(a) + 14, 0, x(a + 2 * C.BAR) - x(a) - 16, 20); g.clip(); g.fillText(txt, x(a) + 16, 12); g.restore();
+      g.save(); g.beginPath(); g.rect(x(a) + 14, 0, x(a + C.LINE) - x(a) - 16, 20); g.clip(); g.fillText(txt, x(a) + 16, 12); g.restore();
     });
   }
   if (o.focus != null) { g.strokeStyle = '#9A382F'; g.lineWidth = 2; g.strokeRect(x(o.focus * C.BAR) + 1, T - 2, x((o.focus + 1) * C.BAR) - x(o.focus * C.BAR) - 2, H - T - B + 4); }
@@ -228,6 +234,7 @@ function stepDone(i) {
   }
 }
 function refresh() {
+  if (C.METER.key !== S.meter) C.setMeter(S.meter || '4/4');
   C.METER.pickup = S.pickup || 0;
   $$('#steps button').forEach(b => { const i = +b.dataset.step; b.classList.toggle('on', i === U.step); b.classList.toggle('done', stepDone(i)); b.setAttribute('aria-current', i === U.step ? 'step' : 'false'); });
   $('#projName').textContent = S.title ? S.title + (S.group ? ' · ' + S.group : '') : '새 창작곡';
@@ -432,18 +439,20 @@ function sylView() {
     const s = C.syllables(l.text); tot += s.length;
     const warn = s.length > 12 ? 'warn' : s.length && s.length < 6 ? 'low' : '';
     return `<div class="sline ${l.chorus ? 'chorus' : ''}">
-      <div class="sh"><b>${i + 1}줄</b><span>${i * 2 + 1}–${i * 2 + 2}마디</span>${l.chorus ? '<em>후렴</em>' : ''}<span class="cnt ${warn}">${s.length}음절</span></div>
+      <div class="sh"><b>${i + 1}줄</b><span>${i * LB() + 1}–${i * LB() + LB()}마디</span>${l.chorus ? '<em>후렴</em>' : ''}<span class="cnt ${warn}">${s.length}음절</span></div>
       <div class="sc">${s.length ? s.map(c => `<i>${esc(c)}</i>`).join('') : '<span class="empty">비어 있어요 · 음표도 없으면 반주 마디(전주·간주)</span>'}</div>
-      ${warn === 'warn' ? '<p class="w">12음절이 넘으면 두 마디에 음이 촘촘해져요. 줄을 나누거나 말을 줄여 봐요.</p>' : ''}
+      ${warn === 'warn' ? `<p class="w">12음절이 넘으면 ${LB()}마디에 음이 촘촘해져요. 줄을 나누거나 말을 줄여 봐요.</p>` : ''}
     </div>`;
   }).join('');
-  const bars = S.lyrics.length * 2;
-  $('#sylSum').innerHTML = `<b>합계</b><span>${S.lyrics.length}줄</span><span>${tot}음절</span><span>${bars}마디</span><span>${bars * 4}박</span><small>최대 ${MAX_LINES}줄 · ${MAX_LINES * 2}마디</small><button class="btn sm" type="button" id="toS3">다음: 선율 연주 ▶</button>`;
+  const bars = S.lyrics.length * LB();
+  if ($('#s2one')) $('#s2one').textContent = `노랫말을 쓰면 글자가 음절로 나뉘고, 한 줄이 ${LB() === 2 ? '두' : LB() === 4 ? '네' : LB()} 마디로 배치됩니다.`;
+  if ($('#s2sub')) $('#s2sub').textContent = `글자 1개 = 음표 1개 · 한 줄 = ${LB()}마디 · ${C.meterLabel(S.meter || '4/4')}`;
+  $('#sylSum').innerHTML = `<b>합계</b><span>${S.lyrics.length}줄</span><span>${tot}음절</span><span>${bars}마디</span><span>${bars * C.METER.beats.length}박</span><small>${C.meterLabel(C.METER.key)} · 최대 ${MAX_LINES}줄 · ${MAX_LINES * LB()}마디</small><button class="btn sm" type="button" id="toS3">다음: 선율 연주 ▶</button>`;
   $('#toS3').onclick = () => go(3);
 }
 
 // ── 3 선율 연주 ──
-$('#tempo').oninput = e => { S.tempo = +e.target.value; $('#tempoV').textContent = '♩=' + S.tempo; save(); };
+$('#tempo').oninput = e => { S.tempo = +e.target.value; $('#tempoV').textContent = tempoLabel(S.tempo); save(); };
 $('#pickSel').onchange = e => {
   const P = +e.target.value; S.pickup = P; C.METER.pickup = P;
   const first = S.melody.filter(n => n.p != null).sort((a, b) => a.s - b.s)[0];
@@ -458,6 +467,18 @@ $('#pickSel').onchange = e => {
     }, '옮기기');
   }
 };
+// 박자 바꾸기: 음표 자리(16분음표 칸)는 그대로, 마디 나눔·줄·반주 무늬가 새 박자로
+$('#meterSel').onchange = e => {
+  const to = e.target.value, from = S.meter || '4/4'; if (to === from) return;
+  const apply = () => {
+    S.meter = to; C.setMeter(to);
+    if (!C.PICKUPS[S.pickup || 0]) { S.pickup = 0; C.METER.pickup = 0; }
+    if (S.arr.versions.length) { S.arr.versions = []; S.arr.chosen = null; }
+    save(); refresh(); toast(`${C.meterLabel(to)} — 마디 나눔이 바뀌었어요${C.METER.lineBars !== 2 ? ` · 가사 한 줄 = ${C.METER.lineBars}마디` : ''}`);
+  };
+  if (S.arr.versions.length) { ask(`박자를 ${C.meterLabel(to)}로 바꾸면 만들어 둔 편곡 버전은 새 박자로 다시 만들어야 해요. 바꿀까요?`, apply, '바꾸기'); e.target.value = from; return; }
+  apply();
+};
 $('#keySel').onchange = e => {
   const old = S.key, to = e.target.value;
   if (!S.melody.length || old === to) { S.key = to; save(); return; }
@@ -467,10 +488,17 @@ $('#keySel').onchange = e => {
   ask(`선율도 ${C.KEYS[to].name}으로 옮길까요? (${sh > 0 ? '반음 ' + sh + '개 위로' : '반음 ' + -sh + '개 아래로'}) 옮기지 않으면 조표만 바뀌어요.`, () => { transposeAll(sh, old); toast(`곡 전체를 ${C.KEYS[to].name}으로 옮겼어요`); }, '함께 옮기기');
 };
 const MAX_LINES = 50;
-const fromBar = () => Math.max(0, Math.min(U.recFrom || 0, totalBars() - 2));
+const fromBar = () => Math.max(0, Math.min(U.recFrom || 0, totalBars() - LB()));
+// 박자 고르기: 홑박자 · 겹박자 · 혼합박자
+function fillMeter() {
+  const sel = $('#meterSel'); if (!sel) return;
+  if (!sel.dataset.done) { sel.dataset.done = 1; sel.innerHTML = Object.entries(C.METER_KINDS).map(([k, nm]) => `<optgroup label="${nm}">${Object.keys(C.METERS).filter(m => C.METERS[m].kind === k).map(m => `<option value="${m}">${C.meterLabel(m)}</option>`).join('')}</optgroup>`).join(''); }
+  sel.value = S.meter || '4/4';
+}
+function fillPick() { const sel = $('#pickSel'); sel.innerHTML = Object.keys(C.PICKUPS).map(Number).sort((a, b) => a - b).map(u => `<option value="${u}">${u ? '못갖춘마디 · ' + C.PICKUPS[u] : '갖춘마디 (1박부터)'}</option>`).join(''); }
 function fillFrom() {
-  const sel = $('#recFrom'), lines = Math.ceil(totalBars() / 2);
-  sel.innerHTML = Array.from({ length: lines }, (_, i) => `<option value="${i * 2}">${i + 1}줄 (${i * 2 + 1}마디)부터</option>`).join('');
+  const sel = $('#recFrom'), lines = Math.ceil(totalBars() / LB());
+  sel.innerHTML = Array.from({ length: lines }, (_, i) => `<option value="${i * LB()}">${i + 1}줄 (${i * LB() + 1}마디)부터</option>`).join('');
   sel.value = String(fromBar());
 }
 document.addEventListener('click', e => {
@@ -483,18 +511,18 @@ document.addEventListener('click', e => {
 });
 $('#recFrom').onchange = e => {
   U.recFrom = +e.target.value;
-  if (S.mode === 'mouse') { U.mpos = C.lineStart(U.recFrom / 2); mposLabel(); }
+  if (S.mode === 'mouse') { U.mpos = C.lineStart(U.recFrom / LB()); mposLabel(); }
   U.scrollReq = U.recFrom * C.BAR; drawRoll3();
 };
 function r3() {
-  $('#tempo').value = S.tempo; $('#tempoV').textContent = '♩=' + S.tempo; $('#keySel').value = S.key;
+  $('#tempo').value = S.tempo; $('#tempoV').textContent = tempoLabel(S.tempo); $('#keySel').value = S.key; fillMeter();
   const mouse = S.mode === 'mouse';
   $('#mousePal').hidden = !mouse; $('#recBtn').hidden = mouse;
-  $('#s3one').textContent = mouse ? '음표 길이를 고른 뒤 화면 건반을 누르면 음표가 차례로 들어갑니다.' : '예비박 네 번 뒤 건반으로 노래를 연주하면, 누른 음이 막대로 실시간 기록됩니다.';
+  $('#s3one').textContent = mouse ? '음표 길이를 고른 뒤 화면 건반을 누르면 음표가 차례로 들어갑니다.' : `예비박 ${C.METER.beats.length}번 뒤 건반으로 노래를 연주하면, 누른 음이 막대로 실시간 기록됩니다.`;
   $('#recState').textContent = mouse ? '마우스 입력' : S.take ? `녹음됨 · 음 ${S.take.events.length}개` : '대기';
   fillFrom();
   if (mouse && U.mpos == null) U.mpos = S.melody.length ? Math.max(...S.melody.map(n => n.s + n.d)) : -(S.pickup || 0);
-  $('#pickSel').value = S.pickup || 0;
+  fillPick(); $('#pickSel').value = S.pickup || 0;
   mposLabel();
   drawRoll3(SND.position());
   if (humOut) humShow(); else drawRollHum();
@@ -516,15 +544,12 @@ function drawRoll3(play) {
 }
 function startRec() {
   const c = SND.audio();
-  const beat = 60 / S.tempo, bars = totalBars(), f = fromBar();
+  const tu = 60 / S.tempo / 4, bars = totalBars(), f = fromBar();
   const bus = c.createGain(); bus.connect(SND.master);
-  const start = c.currentTime + .15, t0 = start + 4 * beat;
-  U.rec = { tempo: S.tempo, from: f, start, t0, end: t0 + (bars - f) * 4 * beat, events: [], on: new Map(), bus };
+  const start = c.currentTime + .15, t0 = start + C.BAR * tu; // 예비박 한 마디(박자대로)
+  U.rec = { tempo: S.tempo, from: f, start, t0, end: t0 + (bars - f) * C.BAR * tu, events: [], on: new Map(), bus };
   const metro = $('#metro').checked;
-  for (let i = 0; i < 4 + (bars - f) * 4; i++) {
-    if (i >= 4 && !metro) break;
-    SND.voice(c, bus, 'click', i % 4 === 0 ? 96 : 84, start + i * beat, .05, i < 4 ? .9 : .55);
-  }
+  for (const k of clickTimes(S.tempo, start, bars - f)) { if (!k.pre && !metro) break; SND.voice(c, bus, 'click', k.acc ? 96 : 84, k.t, .05, k.pre ? .9 : .55); }
   $('#recBtn').textContent = '■ 멈춤'; $('#recBtn').classList.add('playing');
   $('#recFrom').disabled = true;
   stopPlay();
@@ -532,11 +557,11 @@ function startRec() {
 }
 function recTick() {
   if (!U.rec) return;
-  const c = SND.audio(), now = c.currentTime, beat = 60 / U.rec.tempo;
-  const at = `${U.rec.from / 2 + 1}줄부터 `;
-  if (now < U.rec.t0) $('#recState').textContent = '예비박 ' + [1, 2, 3, 4].slice(0, Math.min(4, Math.floor((now - U.rec.start) / beat) + 1)).join('·');
+  const c = SND.audio(), now = c.currentTime, tu = 60 / U.rec.tempo / 4;
+  const at = `${U.rec.from / LB() + 1}줄부터 `;
+  if (now < U.rec.t0) { const n = C.beatStarts().filter(x => x * tu <= now - U.rec.start).length; $('#recState').textContent = '예비박 ' + C.beatStarts().map((_, i) => i + 1).slice(0, Math.max(1, n)).join('·'); }
   else {
-    const s = Math.floor(now - U.rec.t0), bar = U.rec.from + Math.floor((now - U.rec.t0) / (beat * 4)) + 1;
+    const s = Math.floor(now - U.rec.t0), bar = U.rec.from + Math.floor((now - U.rec.t0) / (C.BAR * tu)) + 1;
     $('#recState').textContent = `${at}녹음 중 ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')} · ${bar}마디`;
   }
   if (now >= U.rec.end) { stopRec(); return; }
@@ -582,7 +607,7 @@ $('#recBtn').onclick = () => {
   if (U.hum || U.humBusy) return toast('흥얼거림 녹음을 먼저 끝내요');
   if (U.rec) return stopRec();
   const f = fromBar(), after = S.melody.some(n => n.s >= f * C.BAR);
-  if (after) ask(`${f / 2 + 1}줄(${f + 1}마디)부터 녹음하면, 녹음한 마디까지의 선율이 새로 바뀌어요. 그 앞과 녹음을 멈춘 뒤의 마디는 그대로예요. 녹음할까요?`, startRec, '녹음');
+  if (after) ask(`${f / LB() + 1}줄(${f + 1}마디)부터 녹음하면, 녹음한 마디까지의 선율이 새로 바뀌어요. 그 앞과 녹음을 멈춘 뒤의 마디는 그대로예요. 녹음할까요?`, startRec, '녹음');
   else startRec();
 };
 $('#playTake').onclick = e => {
@@ -639,11 +664,11 @@ async function humStart() {
     return;
   }
   U.humBusy = false;
-  const beat = 60 / S.tempo, f = fromBar();
-  const start = c.currentTime + .25, t0 = start + 4 * beat, end = t0 + (totalBars() - f) * 4 * beat;
+  const tu0 = 60 / S.tempo / 4, f = fromBar();
+  const start = c.currentTime + .25, t0 = start + C.BAR * tu0, end = t0 + (totalBars() - f) * C.BAR * tu0;
   const bus = c.createGain(); bus.connect(SND.master);
   const metro = $('#humMetro').checked;
-  for (let i = 0; i < 4 + (metro ? (totalBars() - f) * 4 : 0); i++) SND.voice(c, bus, 'click', i % 4 === 0 ? 96 : 84, start + i * beat, .05, i < 4 ? .9 : .5);
+  for (const k of clickTimes(S.tempo, start, totalBars() - f)) { if (!k.pre && !metro) break; SND.voice(c, bus, 'click', k.acc ? 96 : 84, k.t, .05, k.pre ? .9 : .5); }
   U.hum = { rec, start, t0, end, from: f, tempo: S.tempo, live: [], bus };
   $('#humRec').textContent = '■ 멈춤'; $('#humRec').classList.add('playing'); $('#humOut').hidden = true;
   $('#recFrom').disabled = true;
@@ -655,9 +680,9 @@ function humTick() {
   const { rms, level, midi } = h.rec.now();
   $('#humLv').style.width = Math.round((level ?? Math.min(1, rms * 5)) * 100) + '%';
   $('#humNow').textContent = midi == null ? '—' : `${C.solName(Math.round(midi), S.key)}(${C.sciName(Math.round(midi), S.key)})`;
-  if (now < h.t0) $('#humState').textContent = '예비박 ' + [1, 2, 3, 4].slice(0, Math.min(4, Math.floor((now - h.start) / beat) + 1)).join('·');
+  if (now < h.t0) { const n = C.beatStarts().filter(x => x * tu <= now - h.start).length; $('#humState').textContent = '예비박 ' + C.beatStarts().map((_, i) => i + 1).slice(0, Math.max(1, n)).join('·'); }
   else {
-    const sec = Math.floor(now - h.t0), bar = h.from + Math.floor((now - h.t0) / (beat * 4)) + 1;
+    const sec = Math.floor(now - h.t0), bar = h.from + Math.floor((now - h.t0) / (C.BAR * tu)) + 1;
     $('#humState').textContent = `녹음 중 ${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')} · ${bar}마디`;
     const u = h.from * C.BAR + (now - h.t0) / tu;
     if (midi != null) { const p = Math.round(midi), last = h.live[h.live.length - 1]; if (last && last.p === p && u - (last.s + last.d) < .8) last.d = u - last.s; else h.live.push({ p, s: u, d: .3 }); }
@@ -698,7 +723,7 @@ function humShow() {
   const o = humOut; $('#humOut').hidden = !o; if (!o) return;
   const a = $('#humAudio'); if (a.src !== o.url) a.src = o.url;
   const G = { 1: '16분음표', 2: '8분음표', 4: '4분음표' }[S.grid || 2];
-  $('#humInfo').textContent = o.notes.length ? `${o.from + 1}~${o.endU / C.BAR}마디 · 음 ${o.notes.length}개 · ${G} 단위로 맞춤 · ♩=${o.tempo}` : '또렷한 음을 찾지 못했어요 — 조금 더 크고 길게 불러 봐요';
+  $('#humInfo').textContent = o.notes.length ? `${o.from + 1}~${o.endU / C.BAR}마디 · 음 ${o.notes.length}개 · ${G} 단위로 맞춤 · ${tempoLabel(o.tempo)}` : '또렷한 음을 찾지 못했어요 — 조금 더 크고 길게 불러 봐요';
   if (o.notes.length) SC.renderAbc($('#humScore'), SC.buildAbc({ tempo: o.tempo, key: S.key, bars: totalBars(), perLine: 4, showTitle: false, voices: [SC.melodyVoice(o.notes, S.lyrics, null)] }));
   else $('#humScore').innerHTML = '';
   drawRollHum();
@@ -876,7 +901,7 @@ function r5() {
       return `<div class="cell ${U.lySel === n.id ? 'on' : ''} ${n.lx === 'd' ? 'dbl' : ''} ${barStart ? 'bs' : ''}" data-id="${n.id}" data-li="${li}"><b>${C.solName(n.p, S.key)}</b><small>${durLabel(n.d)}</small><div class="sl">${lab}</div></div>`;
     }).join('');
     const extra = rep && rep.extra.length ? `<div class="over">남은 글자 ${rep.extra.map(c => `<span>${esc(c)}</span>`).join('')}</div>` : '';
-    return `<div class="lyline ${rep && rep.ok ? 'ok' : 'bad'}${rep && rep.rest ? ' rest' : ''}"><div class="lh"><b>${li + 1}줄</b><span>${li * 2 + 1}–${li * 2 + 2}마디</span><span class="tx">${rep && rep.rest ? '반주 마디' : esc(syl.join(' '))}</span></div><div class="cells">${cells || `<span class="empty">${rep && rep.rest ? '노랫말과 음표가 없는 반주 마디예요(전주·간주·후주)' : '이 마디에 음표가 없어요'}</span>`}</div>${extra}</div>`;
+    return `<div class="lyline ${rep && rep.ok ? 'ok' : 'bad'}${rep && rep.rest ? ' rest' : ''}"><div class="lh"><b>${li + 1}줄</b><span>${li * LB() + 1}–${li * LB() + LB()}마디</span><span class="tx">${rep && rep.rest ? '반주 마디' : esc(syl.join(' '))}</span></div><div class="cells">${cells || `<span class="empty">${rep && rep.rest ? '노랫말과 음표가 없는 반주 마디예요(전주·간주·후주)' : '이 마디에 음표가 없어요'}</span>`}</div>${extra}</div>`;
   }).join('');
   $('#lyCheck').innerHTML = report.map(r => {
     const diff = r.syl - r.slots;
@@ -1090,7 +1115,7 @@ function chordUI() {
   const bars = new Map(); list.forEach(([c, i]) => { const b = Math.floor(c.s / C.BAR); if (!bars.has(b)) bars.set(b, []); bars.get(b).push([c, i]); });
   box.innerHTML = [...bars.entries()].map(([b, cs]) => `<div class="cbar ${cs.length > 1 ? 'multi' : ''}"><span class="cb-n">${b + 1}마디</span><div class="cb-cs">${cs.map(([c, i], j) => {
     const f = fit[i], lvl = f == null ? '' : f >= .6 ? 'good' : f >= .35 ? 'mid' : 'low';
-    const beat = ((c.s % C.BAR) + C.BAR) % C.BAR / 4 + 1, dg = C.chordDeg(c);
+    const beat = C.beatStarts().filter(x => x <= ((c.s % C.BAR) + C.BAR) % C.BAR).length, dg = C.chordDeg(c);
     const nx = v.chords[i + 1], canMerge = nx && Math.floor(nx.s / C.BAR) === b;
     return `<label class="cc ${lvl} ${dg && dg.g ? 'ext g' + dg.g : ''}">${cs.length > 1 || c.d < C.BAR ? `<span>${beat}박~</span>` : ''}<select data-ci="${i}" aria-label="${b + 1}마디 ${beat}박 코드">${opt(c)}</select><i title="노래 음 가운데 화음음 비율">${f == null ? '쉼' : Math.round(f * 100) + '%'}</i><span class="cc-tools">${c.d >= 8 ? `<button type="button" data-split="${i}" title="이 코드를 반으로 나눠 코드 둘로">나누기</button>` : ''}${canMerge ? `<button type="button" data-merge="${i}" title="다음 코드와 하나로 합치기">합치기</button>` : ''}</span></label>`;
   }).join('')}</div></div>`).join('');
@@ -1497,28 +1522,28 @@ function r7() {
   $('#who').innerHTML = Object.keys(ROLE).map(r => `<option value="${r}" ${r === 'record' ? 'selected' : ''}>${esc(roleName(r))}</option>`).join('') + '<option value="all">모둠 전체</option>';
   if (dc) $('#who').value = dc.who;
   validDec();
-  // 그 줄(2마디) 악보: 내 선율 / 편곡 버전
-  const line = Math.max(0, Math.floor(d.bar / 2)), a = line * 2 * C.BAR, P = line === 0 ? S.pickup || 0 : 0; // 첫 줄은 못갖춘마디까지
-  const shift = ns => ns.filter(n => n.p != null && n.s >= a - P && n.s < a + 2 * C.BAR).map(n => ({ ...n, s: n.s - a }));
+  // 그 줄(가사 한 줄) 악보: 내 선율 / 편곡 버전
+  const line = Math.max(0, Math.floor(d.bar / LB())), a = line * C.LINE, P = line === 0 ? S.pickup || 0 : 0; // 첫 줄은 못갖춘마디까지
+  const shift = ns => ns.filter(n => n.p != null && n.s >= a - P && n.s < a + C.LINE).map(n => ({ ...n, s: n.s - a }));
   const nm = vlab(v) === 'AI' ? 'AI 버전' : '편곡 버전';
-  SC.renderAbc($('#score7'), SC.buildAbc({ tempo: S.tempo, key: S.key, bars: 2, perLine: 2, showTitle: false, pickup: P, cutEnd: 0, voices: [{ id: 'M', name: '내 선율', clef: 'treble', notes: shift(S.base) }, { id: 'A', name: nm, clef: 'treble', notes: shift(alignedVocal(v)) }] }), { staffwidth: 640 });
+  SC.renderAbc($('#score7'), SC.buildAbc({ tempo: S.tempo, key: S.key, bars: LB(), perLine: LB(), showTitle: false, pickup: P, cutEnd: 0, voices: [{ id: 'M', name: '내 선율', clef: 'treble', notes: shift(S.base) }, { id: 'A', name: nm, clef: 'treble', notes: shift(alignedVocal(v)) }] }), { staffwidth: 640 });
   drawRoll7(SND.position());
   stat('#stat7'); logUI();
 }
 function drawRoll7(play) {
   const cv = $('#roll7'); if (!cv.offsetParent) return;
   const v = chosen(); if (!v || U.bar == null) return;
-  const line = Math.max(0, Math.floor(U.bar / 2));
+  const line = Math.max(0, Math.floor(U.bar / LB()));
   const mine = S.base.filter(n => n.p != null);
   const ai = alignedVocal(v).map(n => ({ ...n, kind: C.sameNote(n, mine) ? 'same' : 'diff' }));
-  drawRoll(cv, { bars: 2, from: line * 2, layers: [{ kind: 'same', notes: ai }, { kind: 'mine', notes: mine }], focus: U.bar, play });
+  drawRoll(cv, { bars: LB(), from: line * LB(), layers: [{ kind: 'same', notes: ai }, { kind: 'mine', notes: mine }], focus: U.bar, play });
 }
 $('#barTabs').addEventListener('click', e => { const b = e.target.closest('[data-bar]'); if (!b) return; U.bar = +b.dataset.bar; U.pick = null; r7(); });
 $('.choose').addEventListener('click', e => {
   const v = chosen(); const d = U.bar; if (!v || d == null) return;
   const pl = e.target.closest('[data-pl]'), pk = e.target.closest('[data-pick]');
   if (pl) {
-    const line = Math.max(0, Math.floor(d / 2)), a = C.lineStart(line), b = line * 2 * C.BAR + 2 * C.BAR;
+    const line = Math.max(0, Math.floor(d / LB())), a = C.lineStart(line), b = (line + 1) * C.LINE;
     const voc = pl.dataset.pl === 'mine' ? S.base : alignedVocal(v);
     playWith(pl, verTracks({ parts: alignedParts(v) }, voc), { from: a, to: b });
   }
@@ -1629,7 +1654,7 @@ $('#exMid').onclick = () => {
   if (!S.melody.length) return toast('아직 선율이 없어요');
   const ps = exportParts(), st = scoreStart(ps.fv);
   const tr = fromZero(ps.map(p => ({ name: p.name || p.sub || '키보드 왼손', program: p.program, channel: p.drum ? 9 : undefined, notes: p.notes })), st);
-  download(MIDI.writeMidi(tr, S.tempo), fileBase() + '.mid');
+  download(MIDI.writeMidi(tr, S.tempo, [C.METER.n, C.METER.d]), fileBase() + '.mid');
 };
 $('#exPdf').onclick = () => { go(8); setTimeout(() => window.print(), 300); };
 async function mp3(btn, tracks, name) {
@@ -1664,8 +1689,8 @@ $('#karaBtn').onclick = () => {
   if (!S.melody.length) return toast('아직 선율이 없어요');
   stopPlay();
   PLUS.openKaraoke({
-    title: S.title || '우리 노래', sub: [S.group, C.KEYS[S.key].name, '♩=' + S.tempo].filter(Boolean).join(' · '), tempo: S.tempo, bars: totalBars(),
-    lines: PLUS.karaLines(C, S.melody, S.lyrics), SND, lineOf: C.lineOf, photo: S.photo,
+    title: S.title || '우리 노래', sub: [S.group, C.KEYS[S.key].name, C.meterLabel(S.meter || '4/4'), tempoLabel(S.tempo)].filter(Boolean).join(' · '), tempo: S.tempo, bars: totalBars(),
+    lines: PLUS.karaLines(C, S.melody, S.lyrics), SND, lineOf: C.lineOf, photo: S.photo, bar: C.BAR, beats: C.beatStarts(),
     tracks: withVoice => verTracks({ parts: finalParts().parts }, withVoice ? S.melody : null).filter(t => withVoice || t.inst !== 'voice'),
   });
 };
@@ -1684,7 +1709,7 @@ $('#refNext').oninput = e => { S.reflect.next = e.target.value; save(); };
 $('#reportBtn').onclick = () => {
   const v = chosen(), svgHtml = scoreSvg();
   const ok = PLUS.openReport({
-    title: S.title || '우리 노래', group: S.group, photo: S.photo, roles: S.roles, roleNames: ROLE, keyName: C.KEYS[S.key].name, tempo: S.tempo, bars: totalBars(),
+    title: S.title || '우리 노래', group: S.group, photo: S.photo, roles: S.roles, roleNames: ROLE, keyName: C.KEYS[S.key].name, tempo: S.tempo, tempoText: tempoLabel(S.tempo), meter: C.meterLabel(S.meter || '4/4'), bars: totalBars(),
     date: new Date().toLocaleDateString('ko-KR'), lyrics: S.lyrics, scene: S.arr.scene, why: S.arr.why, verName: v ? `${v.id} · ${v.name}` : '', prog: v ? progression(v) : '',
     syl: S.lyrics.reduce((a, l) => a + C.syllables(l.text).length, 0), notes: S.melody.length, counts: counts(), vlab: vlab(v),
     log: S.log.map(l => ({ ...l, who: l.who === 'all' ? '모둠 전체' : roleName(l.who) })), reflect: S.reflect || { items: {} }, svg: svgHtml,
@@ -1712,7 +1737,7 @@ $('#newVer').onclick = () => {
 // ── 태블릿으로 보기(QR) ──
 async function packShare() {
   const v = chosen();
-  const o = { u: S.pickup || 0, t: S.title, g: S.group, k: S.key, b: S.tempo, l: S.lyrics.map(l => [l.text, l.chorus ? 1 : 0]), m: S.melody.map(n => [n.p, n.s, n.d, n.lx === 'n' ? 0 : n.lx]) };
+  const o = { u: S.pickup || 0, mt: S.meter && S.meter !== '4/4' ? S.meter : undefined, t: S.title, g: S.group, k: S.key, b: S.tempo, l: S.lyrics.map(l => [l.text, l.chorus ? 1 : 0]), m: S.melody.map(n => [n.p, n.s, n.d, n.lx === 'n' ? 0 : n.lx]) };
   if (v && v.source === 'auto') { o.a = { s: v.settings, v: v.variant }; if (v.userChords) o.a.c = v.chords.map(c => [c.s, c.d, c.r, c.q]); }
   else if (v) o.c = v.chords.map(c => [c.s, c.d, c.r, c.q]);
   const bytes = new TextEncoder().encode(JSON.stringify(o));
@@ -1747,7 +1772,7 @@ $('#shareBtn').onclick = share;
 async function viewer(hash) {
   let o;
   try { o = await unpackShare(hash); } catch (x) { toast('악보 주소를 읽지 못했어요'); return false; }
-  C.METER.pickup = o.u || 0;
+  C.setMeter(o.mt || '4/4'); C.METER.pickup = o.u || 0;
   const lyrics = o.l.map(([text, ch]) => ({ text, chorus: !!ch }));
   const melody = o.m.map(([p, s, d, lx]) => ({ id: C.uid(), p, s, d, lx: lx || 'n' }));
   const bars = Math.max(2, lyrics.length * 2, Math.ceil(Math.max(0, ...melody.map(n => n.s + n.d)) / C.BAR));
@@ -1756,7 +1781,7 @@ async function viewer(hash) {
   else if (o.c) chords = o.c.map(([s, d, r, q]) => ({ s, d, r, q, name: C.chordName({ r, q }, o.k) }));
   document.body.classList.add('viewer');
   const sec = document.createElement('section'); sec.className = 'step view'; sec.id = 'viewer';
-  sec.innerHTML = `<div class="step-head"><p class="kicker">태블릿으로 보기 · 받은 악보</p><h1>${esc(o.t || '우리 노래')}</h1><p class="one">${esc(o.g || '')} · ♩=${o.b} · ${C.KEYS[o.k].name}</p></div>
+  sec.innerHTML = `<div class="step-head"><p class="kicker">태블릿으로 보기 · 받은 악보</p><h1>${esc(o.t || '우리 노래')}</h1><p class="one">${esc(o.g || '')} · ${C.meterLabel(o.mt || '4/4')} · ${tempoLabel(o.b)} · ${C.KEYS[o.k].name}</p></div>
     <div class="card"><div class="row"><button class="btn" type="button" id="vPlay">▶ 반주와 함께 듣기</button><button class="btn ghost" type="button" id="vSing">▶ 노래만 듣기</button><button class="btn ghost" type="button" id="vTake">이 기기에서 이어서 고치기</button></div>
     <ol class="vlyr">${lyrics.map(l => `<li class="${l.chorus ? 'chorus' : ''}">${esc(l.text)}</li>`).join('')}</ol>
     <div class="score full" id="vScore"></div></div>`;
@@ -1812,7 +1837,7 @@ async function camOpen(mode) {
     CAMD.job = CAM.airKeys(CAMD.cam, cv, { notes, onOn: (p, time) => MIDI.injectMidi({ on: true, p, v: 92, time }), onOff: (p, time) => MIDI.injectMidi({ on: false, p, v: 0, time }) });
     CAMD.tick = setInterval(() => { const st = $('#camState'); if (st) st.textContent = $('#recState').textContent; const rb = $('#camCtl [data-c=rec]'); if (rb) { rb.textContent = U.rec ? '■ 멈춤' : '● 녹음'; rb.classList.toggle('playing', !!U.rec); } }, 200);
   } else if (mode === 'tempo') {
-    CAMD.job = CAM.conductTempo(CAMD.cam, cv, { onBeat: (bpm, n) => { if (bpm) { CAMD.bpm = Math.max(40, Math.min(200, bpm)); $('#camBpm').textContent = '♩=' + CAMD.bpm; $('#camCtl [data-c=setTempo]').disabled = false; } else $('#camBpm').textContent = '박 ' + n; SND.click(SND.audio().currentTime + .01, n % 4 === 1); } });
+    CAMD.job = CAM.conductTempo(CAMD.cam, cv, { onBeat: (bpm, n) => { if (bpm) { CAMD.bpm = Math.max(40, Math.min(200, bpm)); $('#camBpm').textContent = '♩=' + CAMD.bpm; $('#camCtl [data-c=setTempo]').disabled = false; } else $('#camBpm').textContent = '박 ' + n; SND.click(SND.audio().currentTime + .01, n % C.METER.beats.length === 1); } });
   } else camLive();
 }
 function camLive() { // 미리 보기(그림 선율은 종이 그대로, 나머지는 거울처럼)
@@ -1851,7 +1876,7 @@ function drawContour() {
   g.strokeStyle = '#C6613F'; g.lineWidth = 4; g.lineJoin = 'round'; g.beginPath(); let pen = false;
   ct.ys.forEach((y, x) => { if (y == null) { pen = false; return; } const X = ox + x / ct.W * iw, Y = oy + (1 - y) * ih; if (pen) g.lineTo(X, Y); else g.moveTo(X, Y); pen = true; }); g.stroke();
   const ns = camMelody(); const L = S.lyrics.length;
-  ns.forEach(n => { const li = C.lineOf(n.s), f = (li + Math.min(.96, (n.s - C.lineStart(li)) / (C.BAR * 2))) / L; const X = ox + (ct.x0 + (ct.x1 - ct.x0) * f) * iw; g.fillStyle = '#1F4D3A'; g.beginPath(); g.arc(X, oy + 14 + (76 - n.p) / 18 * (ih - 28), 6, 0, 7); g.fill(); });
+  ns.forEach(n => { const li = C.lineOf(n.s), f = (li + Math.min(.96, (n.s - C.lineStart(li)) / C.LINE)) / L; const X = ox + (ct.x0 + (ct.x1 - ct.x0) * f) * iw; g.fillStyle = '#1F4D3A'; g.beginPath(); g.arc(X, oy + 14 + (76 - n.p) / 18 * (ih - 28), 6, 0, 7); g.fill(); });
   $('#camState').textContent = `음 ${ns.length}개 · ${L}줄 · 줄마다 가사 글자 수만큼`;
 }
 function camMelody() {
@@ -1894,7 +1919,7 @@ async function mvRecord(btn) {
   const tr = base.map(t => ({ ...t, notes: t.notes.map(n => ({ ...n, s: n.s + LEAD - st })) }));
   tr.push({ inst: 'click', notes: [0, 4, 8, 12].map(s => ({ p: s ? 84 : 96, s, d: 1 })), vol: .9 });
   const total = LEAD - st + units(), u = 60 / S.tempo / 4;
-  const lines = PLUS.karaLines(C, S.melody, S.lyrics), ttl = S.title || '우리 노래', sub = [S.group, C.KEYS[S.key].name, '♩=' + S.tempo].filter(Boolean).join(' · ');
+  const lines = PLUS.karaLines(C, S.melody, S.lyrics), ttl = S.title || '우리 노래', sub = [S.group, C.KEYS[S.key].name, C.meterLabel(S.meter || '4/4'), tempoLabel(S.tempo)].filter(Boolean).join(' · ');
   const draw = (g, W, H) => {
     const raw = SND.position(); const pos = raw == null ? -Infinity : raw - LEAD + st;
     const gr = g.createLinearGradient(0, H * .55, 0, H); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,.78)'); g.fillStyle = gr; g.fillRect(0, H * .55, W, H * .45);
@@ -2143,13 +2168,13 @@ function a2sBuild() {
   const lyrN = A2S.parseLyrics($('#a2sLyr').value).length, used = song.lines.filter(l => l.text).length;
   const P = C.PICKUPS[song.pickup];
   $('#a2sBpm').value = bpm;
-  $('#a2sSum').innerHTML = `<b>♩=${bpm}</b> · <b>${C.KEYS[key].name}</b> · 노래는 원곡 <b>${song.firstBar + 1}마디</b>부터 · ${song.lines.length * 2}마디 · 음 ${song.melody.length}개${song.pickup ? ` · 못갖춘마디(${P})` : ''} · 분석: ${r.how}<br>` +
-    (lyrN ? `가사 ${lyrN}줄을 음표에 붙였어요 → 플랫폼 줄(2마디)로 ${used}줄` : '<em>가사가 없어 음표만 만들었어요 — 위 칸에 가사를 붙여 넣고 다시 만들면 글자가 붙어요</em>') +
+  $('#a2sSum').innerHTML = `<b>♩=${bpm}</b> · <b>${C.KEYS[key].name}</b> · 노래는 원곡 <b>${song.firstBar + 1}마디</b>부터 · ${song.lines.length * LB()}마디 · ${C.meterLabel(C.METER.key)} · 음 ${song.melody.length}개${song.pickup ? ` · 못갖춘마디(${P})` : ''} · 분석: ${r.how}<br>` +
+    (lyrN ? `가사 ${lyrN}줄을 음표에 붙였어요 → 플랫폼 줄(${LB()}마디)로 ${used}줄` : '<em>가사가 없어 음표만 만들었어요 — 위 칸에 가사를 붙여 넣고 다시 만들면 글자가 붙어요</em>') +
     (r.tc.length > 1 ? ` · 빠르기 후보 ${r.tc.join(', ')}` : '') + (r.autoMul && r.autoMul !== 1 && r.mul === r.autoMul ? ` · 가사 한 줄이 2마디가 되게 ${r.midi ? 'MIDI ' : ''}빠르기를 ${r.autoMul < 1 ? '÷2' : '×2'}로 읽었어요` : '') + (r.cut ? ` · 간주에서 박 ${r.cut}개를 덜어 뒷 구간도 줄 첫 박에 맞췄어요` : '') + (r.midi && !A2.src ? ' · <em>원곡 MP3가 없어 악보 소리만 들을 수 있어요</em>' : '') + a2sCheck(song) + '<br><small>원곡과 함께 들어 보고 박이 어긋나면 빠르기(÷2·×2)와 첫 박을 고쳐요. 틀린 음은 새 곡으로 연 뒤 4·5단계에서 고쳐요.</small>';
   const old = C.METER.pickup; C.METER.pickup = song.pickup;
   try {
     const mel = song.melody.map(n => ({ ...n, id: C.uid() }));
-    SC.renderAbc($('#a2sScore'), SC.buildAbc({ tempo: bpm, key, bars: Math.max(2, song.lines.length * 2), perLine: 4, showTitle: false, pickup: song.pickup, voices: [SC.melodyVoice(mel, song.lines, null)] }));
+    SC.renderAbc($('#a2sScore'), SC.buildAbc({ tempo: bpm, key, bars: Math.max(2, song.lines.length * LB()), perLine: 4, showTitle: false, pickup: song.pickup, voices: [SC.melodyVoice(mel, song.lines, null)] }));
   } finally { C.METER.pickup = old; }
   $('#a2sOut').hidden = false;
 }
@@ -2210,12 +2235,14 @@ $('#a2sUse').onclick = () => {
 // ── 뮤즈스코어 연동: 고친 악보(.musicxml · .mxl) 다시 불러오기 ──
 $('#mxlFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  let sc, part, song;
+  let sc, part, song, mk;
   try {
     sc = MXL.parse(await MXL.readFile(f));
-    if (sc.meter[0] * 4 / sc.meter[1] !== 4) return toast(`${sc.meter[0]}/${sc.meter[1]}박자 악보는 아직 못 읽어요 — 4/4 악보만 돼요`);
+    mk = C.meterKeyOf(sc.meter[2] || sc.meter[0], sc.meter[1]);
+    if (!mk) return toast(`${sc.meter[2] || sc.meter[0]}/${sc.meter[1]}박자 악보는 아직 못 읽어요 — 2/4·3/4·4/4·6/8·9/8·12/8·5/4·5/8·7/8만 돼요`);
     part = MXL.melodyPart(sc); if (!part || !part.notes.length) return toast('노래 선율이 있는 파트를 찾지 못했어요');
-    song = MXL.toSong(sc, part);
+    const keep = C.METER.key; C.setMeter(mk);
+    try { song = MXL.toSong(sc, part, { pickups: Object.keys(C.PICKUPS).map(Number), line: C.LINE, lineBars: C.METER.lineBars }); } finally { C.setMeter(keep); }
   } catch (x) { console.warn(x); return toast(x.message || '악보 파일을 읽지 못했어요'); }
   const sameSong = S.made && S.title && sc.title && S.title.trim() === sc.title.trim();
   const msg = `「${sc.title || f.name}」 — ${part.name} 파트의 선율 ${song.melody.length}음 · 가사 ${song.lines.filter(l => l.text).length}줄을 불러올까요?` + (sameSong ? ' 지금 곡의 선율·가사를 바꾸고, 모둠·역할·편성은 그대로 둬요.' : ' 새 곡으로 열어요. 지금 곡은 작업 기록에 남겨 둡니다.');
@@ -2224,7 +2251,7 @@ $('#mxlFile').onchange = async e => {
     if (!sameSong) { const old = S; S = blank(); S.group = old.group; S.roles = old.roles; S.mode = old.mode; }
     S.title = sc.title || S.title || f.name.replace(/\.[^.]+$/, '');
     if (sc.tempo) S.tempo = Math.max(40, Math.min(200, sc.tempo));
-    S.key = sc.key; S.pickup = song.pickup; C.METER.pickup = S.pickup;
+    S.key = sc.key; S.meter = mk; C.setMeter(mk); S.pickup = song.pickup; C.METER.pickup = S.pickup;
     const ch = (S.lyrics || []).map(l => l.chorus);
     S.lyrics = song.lines.map((l, i) => ({ text: l.text, chorus: sameSong ? !!ch[i] : false }));
     S.melody = song.melody.map(n => ({ id: C.uid(), ...n }));

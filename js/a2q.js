@@ -4,7 +4,7 @@
 // ② 박마다 음표 자리 맞춤: 박마다 4분·8분·16분 중 가장 단순하면서 잘 맞는 자리(루바토로 생긴 점16분 같은 군더더기를 없앤다)
 // ③ 마디·줄 맞춤: 첫 박 × 못갖춘마디 × 구간마다 어긋남 가설을 모두 견줘 가사 줄이 2마디 줄에 가장 잘 맞는 것
 // ④ 가사 붙임새: 줄 안에서 글자마다 음 묶음 — 실러빅(한 글자 한 음) · 네우마틱(2~4음) · 멜리스마틱(5음 이상)
-import { timeToUnits, beatTrack, tempoCandidates, parseLyrics, sylOf, scaleBeats, bestOffset, FPS, INSTR } from './a2s.js?v=15';
+import { timeToUnits, beatTrack, tempoCandidates, parseLyrics, sylOf, scaleBeats, bestOffset, FPS, INSTR } from './a2s.js?v=16';
 
 const posOf = (b, t) => timeToUnits(b, t) / 4; // 시각 → 박 번호(소수)
 export function timeAt(b, p) { // 박 번호(소수) → 시각

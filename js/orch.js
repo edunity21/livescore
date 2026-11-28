@@ -3,7 +3,39 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, KEYS, MAJOR, pc, chordTones } from './core.js?v=15';
+import { BAR, LINE, KEYS, MAJOR, pc, chordTones, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=16';
+
+// ── 박자 도우미 ── 4/4는 예전 무늬 그대로, 다른 박자(홑·겹·혼합)는 박·묶음에 맞춰 만든다
+const H2 = c => is44() ? (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]) : (c.d >= BAR ? groupSplit(c.d) : [[0, c.d]]); // 반 마디씩 → 묶음씩
+const H1 = c => is44() ? (c.d >= 16 ? [[0, 16]] : [[0, c.d]]) : [[0, c.d]];
+// 마디 안 자리: beats 박 · groups 묶음 · eighths 8분 · off 엇박(겹박자는 셋째 8분) · strum ↓↓↑ · back 뒷박(작은북·탬버린)
+function barPos(kind) {
+  const bs = beatStarts(), gs = groupStarts(), bl = METER.beats;
+  switch (kind) {
+    case 'beats': return bs;
+    case 'groups': return gs;
+    case 'eighths': { const o = []; for (let u = 0; u < BAR; u += 2) o.push(u); return o; }
+    case 'off': return bs.map((b, i) => b + (bl[i] === 6 ? 4 : 2));
+    case 'strum': { const o = []; bs.forEach((b, i) => { o.push(b); if (bl[i] === 6) o.push(b + 4); else if (i > 0) o.push(b + 2); }); return o; }
+    case 'back': { const o = bs.filter(b => !gs.includes(b)); return o.length ? o : gs.slice(1).length ? gs.slice(1) : [bs[bs.length - 1]]; }
+  }
+  return [0];
+}
+// 화음 구간 c 안의 마디 자리(pos) → [[구간 안 자리, 다음 자리까지 길이]] (마디에 맞춰 놓는다)
+function posIn(c, pos) {
+  const us = []; for (let b = Math.floor(c.s / BAR) * BAR; b < c.s + c.d; b += BAR) pos.forEach(x => { const a = b + x; if (a >= c.s && a < c.s + c.d) us.push(a - c.s); });
+  us.sort((a, b) => a - b); if (!us.length || us[0] > 0) us.unshift(0);
+  return [...new Set(us)].map((u, i, a) => [u, (a[i + 1] ?? c.d) - u]);
+}
+// 타악 무늬(4/4가 아닐 때): 묶음 첫 박 큰북(한 박짜리 묶음은 큰북·작은북 번갈아), 뒷박 작은북
+function percX(k, last, busy) {
+  if (last) return [[0, ['kick']]];
+  const gs = groupStarts(), out = [];
+  gs.forEach((g, i) => out.push([g, [i % 2 && METER.groups[i] <= 6 && METER.kind !== 'simple' ? 'snare' : 'kick']]));
+  if (k !== 'intro') barPos('back').forEach(b => { if (!gs.includes(b)) out.push([b, ['snare']]); });
+  if (busy) barPos('off').forEach(b => out.push([b, ['kick']]));
+  return out;
+}
 
 // cat: 편성 칸 묶음 · disp: 적는 음 옥타브(리코더는 한 옥타브 아래로 적는다) · trans: 이조 악기(기보음 = 실음 + trans, 파트보에서 쓴다)
 export const ENS = {
@@ -204,14 +236,14 @@ export function orchestrate(o) {
   // 클라리넷: 벌스는 길잡이음 대선율(길게), 주 구간은 노래의 3도 아래 화음 선율
   if (ens.clarinet > 0) {
     const info = ENS.clarinet, n = Math.min(ens.clarinet, info.divisi);
-    const cm = mainK === 'chorus' ? guide(info.range, c => (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]), n).filter(x => kindAt(x.s) === 'verse') : [];
+    const cm = mainK === 'chorus' ? guide(info.range, c => H2(c), n).filter(x => kindAt(x.s) === 'verse') : [];
     const har = octFit(melIn(mainK).map(m => ({ ...m, p: below3(m.p, tonic) ?? m.p - 3 })), info.range);
     add('cl', info, easy([...cm, ...har]), { players: ens.clarinet });
   }
   // 알토 색소폰: 벌스는 길게, 주 구간은 팝 혼 리프(엇박 찌르기)
   if (ens.sax > 0) {
     const info = ENS.sax, n = Math.min(ens.sax, info.divisi);
-    const ns = guide(info.range, c => kindAt(c.s) === mainK ? [[0, 3], [6, 2], [10, 4]] : kindAt(c.s) === 'intro' ? [] : c.d >= 16 ? [[0, 16]] : [[0, c.d]], n);
+    const ns = guide(info.range, c => kindAt(c.s) === mainK ? (is44() ? [[0, 3], [6, 2], [10, 4]] : H2(c).map(([u, d]) => [u, Math.max(2, d >> 1)])) : kindAt(c.s) === 'intro' ? [] : H1(c), n);
     add('sax', info, ns, { players: ens.sax, tech: sections.filter(x => kindOf(x.name) === mainK).slice(0, 1).map(x => ({ s: x.s, text: '짧고 힘있게' })) });
   }
   // 트럼펫: 전주 훅 + 주 구간 노래 선율(밝게) — 수노 관악 스템이 있으면 그 맨 위 선율
@@ -232,7 +264,7 @@ export function orchestrate(o) {
         const t = chordTones(c, tonic);
         hiP = nearest(tonesIn([t[1], t[2]], 50, 64), hiP); loP = nearest(tonesIn([t[0]], 43, hiP - 3), loP) ?? hiP - 7;
         const ps = n > 1 ? [loP, hiP] : [hiP];
-        (c.s === lastS ? [[0, c.d]] : c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: ps[0], s: c.s + u, d, chord: ps.length > 1 ? ps : undefined }));
+        (c.s === lastS ? [[0, c.d]] : H2(c)).forEach(([u, d]) => ns.push({ p: ps[0], s: c.s + u, d, chord: ps.length > 1 ? ps : undefined }));
       });
     }
     add('tbn', info, ns, { players: ens.trombone });
@@ -242,7 +274,7 @@ export function orchestrate(o) {
     const info = ENS.violin, n = Math.min(ens.violin, info.divisi);
     let ns = src.strings && src.strings.length ? lineFrom(src.strings, 0, info.range) : [];
     if (!ns.length) {
-      const cm = mainK === 'chorus' ? guide([67, 84], c => (c.d >= 16 ? [[0, 16]] : [[0, c.d]])).filter(x => kindAt(x.s) === 'verse') : [];
+      const cm = mainK === 'chorus' ? guide([67, 84], H1).filter(x => kindAt(x.s) === 'verse') : [];
       ns = mono([...leadIn(info.range), ...cm, ...octFit(melIn(mainK).map(m => ({ ...m, p: m.p + 12 })), [67, 88])]);
     }
     add('vn', info, withThird(lastLong(info.range, ns), info.range, n), { players: ens.violin, role: 'lead' });
@@ -252,7 +284,7 @@ export function orchestrate(o) {
     const info = ENS.cello, ns = [];
     chords.forEach(c => {
       const r = fit(pc(tonic + c.r), 36, 47), k = c.s === lastS ? 'end' : kindAt(c.s);
-      const pat = k === 'end' || k === 'intro' || k === 'verse' ? [[0, c.d, r]] : c.d >= 16 ? [[0, 8, r], [8, 8, r + 7]] : [[0, c.d, r]];
+      const pat = k === 'end' || k === 'intro' || k === 'verse' ? [[0, c.d, r]] : H2(c).map(([u, d], i) => [u, d, i % 2 ? r + 7 : r]);
       pat.forEach(([u, d, p]) => ns.push({ p: fit(p, ...info.range), s: c.s + u, d }));
     });
     add('vc', info, mono(ns), { players: ens.cello, tech: [{ s: start, text: 'arco' }] });
@@ -263,12 +295,14 @@ export function orchestrate(o) {
     const two = ens.guitar >= 2;
     const g1 = [];
     const strum = { pop: [0, 4, 6, 10, 12], rock: [0, 4, 6, 10, 12], acoustic: [0, 4, 6, 10, 12], ballad: [0, 8], dance: [2, 6, 10, 14], hiphop: [0, 10] }[genre] || [0, 4, 8, 12];
+    const strumX = { ballad: 'groups', hiphop: 'groups', dance: 'off' }[genre] || 'strum';
     chords.forEach(c => {
       const k = c.s === lastS ? 'end' : kindAt(c.s);
       let pat, power = false;
       if (k === 'end' || k === 'intro') pat = [[0, c.d]];
       else if (k === 'verse' && rockish && !soft) { power = true; pat = []; for (let u = 0; u < c.d; u += 2) pat.push([u, 2]); }
-      else if (k === 'verse' && soft) pat = c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]];
+      else if (k === 'verse' && soft) pat = H2(c);
+      else if (!is44()) pat = posIn(c, barPos(strumX));
       else { const st = strum.filter(u => u < c.d); pat = st.map((u, i) => [u, (st[i + 1] ?? c.d) - u]); }
       const v = guitarShape(c, tonic, power);
       pat.forEach(([u, d]) => g1.push({ p: v[0], s: c.s + u, d, chord: v }));
@@ -295,6 +329,7 @@ export function orchestrate(o) {
     chords.forEach(c => {
       const v = closeVoicing(chordTones(c, tonic), prev, 60, 76); prev = v;
       const k = c.s === lastS ? 'end' : kindAt(c.s);
+      if (!is44()) { const pk = k === 'end' || k === 'intro' ? null : k === 'verse' && mainK === 'chorus' && !soft ? 'beats' : ({ ballad: 'groups', hiphop: 'groups', dance: 'off', rock: 'eighths' }[genre] || 'strum'); (pk ? posIn(c, barPos(pk)) : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: v[0], s: c.s + u, d, chord: v })); return; }
       const st = k === 'end' || k === 'intro' ? [0] : k === 'verse' && mainK === 'chorus' && !soft ? [0, 4, 8, 12] : strum;
       const us = st.filter(u => u < c.d);
       us.forEach((u, i) => ns.push({ p: v[0], s: c.s + u, d: (us[i + 1] ?? c.d) - u, chord: v }));
@@ -321,10 +356,12 @@ export function orchestrate(o) {
       chords.forEach(c => {
         const t = chordTones(c, tonic), v = closeVoicing(t, prev, 59, 79); prev = v;
         const root = fit(pc(tonic + c.r), 40, 52), last = c.s === lastS, intro = kindAt(c.s) === 'intro';
-        const rh = last || intro ? [[0, c.d]] : rhPat;
-        if (rh === 'broken') [v[0], v[1], v[2], v[1]].forEach((p, k) => { if (k * 4 < c.d) R.push({ p, s: c.s + k * 4, d: 4 }); });
+        let rh = last || intro ? [[0, c.d]] : rhPat;
+        if (!is44() && rh !== 'broken' && !(last || intro)) rh = genre === 'rock' ? posIn(c, barPos('beats')) : genre === 'dance' ? posIn(c, barPos('off')).filter(([u]) => u > 0).map(([u]) => [u, 2]) : genre === 'hiphop' ? [[0, c.d]] : H2(c);
+        if (rh === 'broken' && !is44()) posIn(c, barPos('beats')).forEach(([u, d], k) => R.push({ p: [v[0], v[1], v[2], v[1]][k % 4], s: c.s + u, d }));
+        else if (rh === 'broken') [v[0], v[1], v[2], v[1]].forEach((p, k) => { if (k * 4 < c.d) R.push({ p, s: c.s + k * 4, d: 4 }); });
         else rh.forEach(([u, d]) => { if (u < c.d) R.push({ p: v[0], s: c.s + u, d: Math.min(d, c.d - u), chord: v }); });
-        const lh = last || soft ? [[0, c.d]] : [[0, 8], [8, 8]];
+        const lh = last || soft ? [[0, c.d]] : is44() ? [[0, 8], [8, 8]] : H2(c);
         lh.forEach(([u, d]) => { if (u < c.d) L.push({ p: root, s: c.s + u, d: Math.min(d, c.d - u) }); });
       });
     }
@@ -341,7 +378,7 @@ export function orchestrate(o) {
       let prev = null;
       chords.forEach(c => {
         const v = closeVoicing(chordTones(c, tonic), prev, 62, 81, n); prev = n >= 3 ? v : prev;
-        const pat = c.s === lastS || kindAt(c.s) === 'intro' || soft ? [[0, c.d]] : c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]];
+        const pat = c.s === lastS || kindAt(c.s) === 'intro' || soft ? [[0, c.d]] : H2(c);
         pat.forEach(([u, d]) => ns.push({ p: v[0], s: c.s + u, d, chord: v.length > 1 ? v : undefined }));
       });
     }
@@ -354,7 +391,7 @@ export function orchestrate(o) {
     if (src.bass && src.bass.length) ns = lineFrom(src.bass.map(n => ({ ...n, p: Math.min(...(n.chord || [n.p])) })), 0, info.range);
     else {
       ns = (old.bass || []).filter(n => n.s >= 0).map(n => ({ ...n, p: fit(n.p, ...info.range) }));
-      chords.filter(c => c.s < 0 || !old.bass).forEach(c => { const r = fit(pc(tonic + c.r), 28, 43); (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d })); });
+      chords.filter(c => c.s < 0 || !old.bass).forEach(c => { const r = fit(pc(tonic + c.r), 28, 43); H2(c).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d })); });
       ns = mono(ns);
     }
     add('bass', info, ns, { disp: 12 });
@@ -387,13 +424,13 @@ export function orchestrate(o) {
   if (ens.cajon > 0) {
     const info = ENS.cajon;
     const base = (src.drums && src.drums.length ? src.drums : old.drums || []).map(n => ({ s: n.s, kit: (n.kit || [kitOf(n.p)]).map(k => (k === 'kick' || k === 'tom' ? 'kick' : k === 'snare' || k === 'crash' ? 'snare' : null)).filter(Boolean) })).filter(h => h.kit.length);
-    const hits = base.length ? base : patHits((k, last) => last ? [[0, ['kick']]] : k === 'intro' ? [[0, ['kick']], [8, ['snare']]] : k === 'chorus' || mainK === 'verse' ? [[0, ['kick']], [4, ['snare']], [6, ['kick']], [8, ['kick']], [12, ['snare']], [14, ['snare']]] : [[0, ['kick']], [4, ['snare']], [10, ['kick']], [12, ['snare']]]);
+    const hits = base.length ? base : patHits((k, last) => !is44() ? percX(k, last, k === 'chorus' || mainK === 'verse') : last ? [[0, ['kick']]] : k === 'intro' ? [[0, ['kick']], [8, ['snare']]] : k === 'chorus' || mainK === 'verse' ? [[0, ['kick']], [4, ['snare']], [6, ['kick']], [8, ['kick']], [12, ['snare']], [14, ['snare']]] : [[0, ['kick']], [4, ['snare']], [10, ['kick']], [12, ['snare']]]);
     add('caj', info, percNotes(hits), { drum: true, players: ens.cajon, tech: [{ s: start, text: '아래 = 가운데(저음) · 위 = 모서리(고음)' }] });
   }
   // 탬버린: 주 구간의 2·4박(뒷박) — 끝에서 한 번
   if (ens.tamb > 0) {
     const info = ENS.tamb;
-    const hits = patHits((k, last) => last ? [[0, ['tamb']]] : k === mainK ? [[4, ['tamb']], [12, ['tamb']]] : []);
+    const hits = patHits((k, last) => last ? [[0, ['tamb']]] : k === mainK ? (is44() ? [[4, ['tamb']], [12, ['tamb']]] : barPos('back').map(b => [b, ['tamb']])) : []);
     add('tamb', info, percNotes(hits), { drum: true, players: ens.tamb });
   }
   // ── 관현악 악기 ──
@@ -409,7 +446,7 @@ export function orchestrate(o) {
   // 오보에: 벌스는 길잡이음 대선율, 주 구간은 노래를 같은 높이로(플루트가 있으면 대선율만)
   if (ens.oboe > 0) {
     const info = ENS.oboe, n = Math.min(ens.oboe, info.divisi);
-    const cm = guide(info.range, c => (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]), n).filter(x => kindAt(x.s) === 'verse' || (ens.flute > 0 && kindAt(x.s) === mainK));
+    const cm = guide(info.range, c => H2(c), n).filter(x => kindAt(x.s) === 'verse' || (ens.flute > 0 && kindAt(x.s) === mainK));
     const mel = ens.flute > 0 ? [] : octFit(melIn(mainK), info.range);
     add('ob', info, easy(mono([...cm, ...mel])), { players: ens.oboe, tech: [{ s: start, text: 'dolce' }] });
   }
@@ -418,7 +455,7 @@ export function orchestrate(o) {
     const info = ENS.bassoon, ns = [];
     chords.forEach(c => {
       const r = fit(pc(tonic + c.r), 41, 52), k = c.s === lastS ? 'end' : kindAt(c.s);
-      const pat = k === mainK && c.d >= 16 ? [[0, 8, r], [8, 8, r + 7]] : [[0, c.d, r]];
+      const pat = k === mainK && c.d >= (is44() ? 16 : BAR) ? H2(c).map(([u, d], i) => [u, d, i % 2 ? r + 7 : r]) : [[0, c.d, r]];
       if (k === 'intro' && ens.cello > 0) return;
       pat.forEach(([u, d, q]) => ns.push({ p: fit(q, ...info.range), s: c.s + u, d }));
     });
@@ -434,7 +471,7 @@ export function orchestrate(o) {
     const info = ENS.violin2, n = Math.min(ens.violin2, info.divisi), ns = []; let prev = null;
     chords.forEach(c => {
       const k = c.s === lastS ? 'end' : kindAt(c.s), v = closeVoicing(chordTones(c, tonic), prev, 60, 76, 3); prev = v;
-      if (k === 'verse') { for (let u = 0, i = 0; u < c.d; u += 4, i++) ns.push({ p: v[[0, 1, 2, 1][i % 4]], s: c.s + u, d: 4 }); }
+      if (k === 'verse') { if (!is44()) posIn(c, barPos('beats')).forEach(([u, d], i) => ns.push({ p: v[[0, 1, 2, 1][i % 4]], s: c.s + u, d: Math.min(d, 4) })); else for (let u = 0, i = 0; u < c.d; u += 4, i++) ns.push({ p: v[[0, 1, 2, 1][i % 4]], s: c.s + u, d: 4 }); }
       else { const top = n > 1 ? [v[1], v[2]] : [v[1]]; ns.push({ p: top[top.length - 1], s: c.s, d: c.d, chord: top.length > 1 ? top : undefined }); }
     });
     const tech = sections.map(x => ({ s: x.s, text: kindOf(x.name) === 'verse' ? 'pizz.' : 'arco' }));
@@ -446,7 +483,7 @@ export function orchestrate(o) {
     chords.forEach(c => {
       const t = chordTones(c, tonic), g = nearest(tonesIn([t[2], t[1]], 55, 69), prev) ?? nearest(tonesIn(t, 55, 69), prev); if (g == null) return; prev = g;
       const k = c.s === lastS ? 'end' : kindAt(c.s);
-      (k === mainK && c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: g, s: c.s + u, d }));
+      (k === mainK ? H2(c) : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: g, s: c.s + u, d }));
     });
     add('va', info, mono(ns), { players: ens.viola });
   }
@@ -455,7 +492,7 @@ export function orchestrate(o) {
     const info = ENS.contrabass, ns = [];
     chords.forEach(c => {
       const r = fit(pc(tonic + c.r), 28, 40), k = c.s === lastS ? 'end' : kindAt(c.s);
-      (k === 'verse' && c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d }));
+      (k === 'verse' ? H2(c) : [[0, c.d]]).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d }));
     });
     const tech = sections.map(x => ({ s: x.s, text: kindOf(x.name) === 'verse' ? 'pizz.' : 'arco' }));
     add('cb', info, mono(ns), { players: ens.contrabass, disp: 12, tech });
@@ -468,7 +505,7 @@ export function orchestrate(o) {
       const k = c.s === lastS ? 'end' : kindAt(c.s), root = fit(pc(tonic + c.r), 36, 47);
       L.push({ p: root, s: c.s, d: c.d, chord: c.d >= 8 ? [root, root + 7] : undefined });
       if (k === 'end') { R.push({ p: seq[3], s: c.s, d: c.d, chord: seq.slice(0, 4) }); return; }
-      if (k === mainK) { [0, 8].forEach(u => { if (u < c.d) R.push({ p: seq[3], s: c.s + u, d: Math.min(8, c.d - u), chord: seq.slice(0, 4) }); }); return; }
+      if (k === mainK) { (is44() ? [[0, 8], [8, 8]] : H2(c)).forEach(([u, d]) => { if (u < c.d) R.push({ p: seq[3], s: c.s + u, d: Math.min(d, c.d - u), chord: seq.slice(0, 4) }); }); return; }
       const ord = [0, 1, 2, 3, 2, 1, 2, 3];
       for (let u = 0, i = 0; u < c.d; u += 2, i++) R.push({ p: seq[ord[i % 8]], s: c.s + u, d: 2 });
     });
@@ -482,7 +519,7 @@ export function orchestrate(o) {
     chords.forEach(c => {
       const isV = c.r === 7 || c.r === 11, p = isV ? V : I, k = c.s === lastS ? 'end' : kindAt(c.s);
       if (k === 'end') { ns.push({ p: I, s: c.s, d: c.d }); tech.push({ s: c.s, text: 'roll' }); return; }
-      if (firstOf.has(c.s) || (k === mainK && (((c.s % (BAR * 2)) + BAR * 2) % (BAR * 2)) === 0)) ns.push({ p, s: c.s, d: Math.min(4, c.d) });
+      if (firstOf.has(c.s) || (k === mainK && (((c.s % LINE) + LINE) % LINE) === 0)) ns.push({ p, s: c.s, d: Math.min(4, c.d) });
     });
     const introEnd = sections.find(x => kindOf(x.name) !== 'intro');
     if (introEnd && introEnd.s > start) { ns.push({ p: V, s: introEnd.s - 4, d: 4 }); tech.push({ s: introEnd.s - 4, text: 'roll' }); }

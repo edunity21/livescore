@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName } from './core.js?v=15';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName, is44, beatStarts, meterSig, tempoMark } from './core.js?v=16';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -27,6 +27,10 @@ function abcPitch(p, key, bar) {
 // 빔 묶음: 한 마디 조각들 → 조각마다 묶음 번호(null = 묶지 않음)
 // 4분음표보다 짧은 음표만, 박(16분음표 4칸)마다 묶고, 1·2박 또는 3·4박이 모두 8분음표 둘씩이면 반 마디(8분음표 넷)로 묶는다
 function beamGroups(inBar, a) {
+  if (!is44()) { // 박(겹박자는 점4분, 혼합박자는 묶음)마다 짧은 음끼리 빔
+    const bs = beatStarts(), bt = q => bs.filter(x => x <= q.s - a).length - 1;
+    return inBar.map(q => q.p != null && q.d < Math.min(4, METER.beats[bt(q)]) + (METER.beats[bt(q)] === 6 && q.d === 4 ? 1 : 0) ? 'b' + bt(q) : null);
+  }
   const beat = q => Math.floor((q.s - a) / 4);
   const short = q => q.p != null && q.d < 4;
   const plain8 = bt => { const qs = inBar.filter(q => beat(q) === bt); return qs.length === 2 && qs.every(q => q.p != null && q.d === 2) && (qs[0].s - a) % 4 === 0; };
@@ -59,8 +63,9 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
   if (showTitle && title) push('T:' + title.replace(/\n/g, ' '));
   if (showTitle && header && header.subtitle) push('T:' + header.subtitle);
   if (showTitle && (header && header.credit || sub)) push('C:' + (header && header.credit || sub));
-  push('M:4/4'); push('L:1/16');
-  if (showTitle) push(header && header.style ? `Q:"${header.style}" 1/4=${tempo}` : `Q:1/4=${tempo}`);
+  const sig = meterSig(), tm = tempoMark(tempo);
+  push(`M:${sig.num}/${sig.den}`); push('L:1/16');
+  if (showTitle) push(header && header.style ? `Q:"${header.style}" ${tm.abc}` : `Q:${tm.abc}`);
   ['%%vocalfont "Pretendard" 13', '%%gchordfont "Pretendard" 12', '%%titlefont "Pretendard" 24', '%%subtitlefont "Pretendard" 14', '%%composerfont "Pretendard" 11', '%%voicefont "Pretendard" 11', '%%tempofont "Pretendard" 12', '%%partsfont "Pretendard" 12', '%%annotationfont "Pretendard" 10.5', '%%textfont "Pretendard" 11', '%%partsbox true'].forEach(push);
   if (showTitle && header && header.info) { // 편성 줄: 악기가 많으면 여러 줄로(쪽 밖으로 넘치지 않게)
     const [names, secs] = header.info.split(' | '), out = [];
@@ -193,7 +198,7 @@ export function renderAbc(el, abc, opts = {}) {
 }
 
 // ── MusicXML ──
-const TYPE = { 16: ['whole', 0], 12: ['half', 1], 8: ['half', 0], 6: ['quarter', 1], 4: ['quarter', 0], 3: ['eighth', 1], 2: ['eighth', 0], 1: ['16th', 0] };
+const TYPE = { 24: ['whole', 1], 16: ['whole', 0], 12: ['half', 1], 8: ['half', 0], 6: ['quarter', 1], 4: ['quarter', 0], 3: ['eighth', 1], 2: ['eighth', 0], 1: ['16th', 0] };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const DRUM_X = { kick: ['F', 4, 36], snare: ['C', 5, 38], tom: ['E', 5, 45], hat: ['G', 5, 42], ride: ['F', 5, 51], crash: ['A', 5, 49], tamb: ['E', 5, 54] };
 
@@ -254,8 +259,8 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
       if (b === b0) {
         const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'alto' ? '<sign>C</sign><line>3</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';
         const tx = disp || tr ? `<transpose><diatonic>${-(7 * disp / 12 + (DIA[tr] ?? Math.round(tr * 7 / 12)))}</diatonic><chromatic>${-(disp + tr)}</chromatic></transpose>` : '';
-        x += `      <attributes><divisions>4</divisions><key><fifths>${pk.fifths}</fifths><mode>major</mode></key><time><beats>4</beats><beat-type>4</beat-type></time><clef>${clef}</clef>${tx}</attributes>\n`;
-        if (i === 0) x += `      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>\n`;
+        x += `      <attributes><divisions>4</divisions><key><fifths>${pk.fifths}</fifths><mode>major</mode></key><time><beats>${meterSig().num}</beats><beat-type>${meterSig().den}</beat-type></time><clef>${clef}</clef>${tx}</attributes>\n`;
+        if (i === 0) { const [bu, dot, pm] = tempoMark(tempo).xml; x += `      <direction placement="above"><direction-type><metronome><beat-unit>${bu}</beat-unit>${dot ? '<beat-unit-dot/>' : ''}<per-minute>${pm}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>\n`; }
       }
       const inBar = pieces.filter(q => q.s >= b * BAR && q.s < (b + 1) * BAR);
       for (const q of inBar) {
@@ -269,7 +274,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         }
         const [type, dot] = TYPE[q.d] || ['16th', 0];
         if (q.p == null) {
-          x += q.d === BAR ? `      <note><rest measure="yes"/><duration>16</duration><voice>1</voice></note>\n` : `      <note><rest/><duration>${q.d}</duration><voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}</note>\n`;
+          x += q.d === BAR ? `      <note><rest measure="yes"/><duration>${BAR}</duration><voice>1</voice></note>\n` : `      <note><rest/><duration>${q.d}</duration><voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}</note>\n`;
           continue;
         }
         if (p.slash) { // 리듬 사선(코드 기호 위에)

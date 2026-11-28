@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=15';
+import { BAR } from './core.js?v=16';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };
@@ -48,7 +48,7 @@ export function parseMidi(buf) {
   if (str(4) !== 'MThd') throw new Error('MIDI 파일이 아닙니다');
   const hl = u32(); const fmt = u16(); const ntr = u16(); const div = u16(); o += hl - 6;
   if (div & 0x8000) throw new Error('SMPTE 시간 형식은 지원하지 않습니다');
-  const tracks = []; const tempos = [];
+  const tracks = []; const tempos = []; const tsigs = [];
   for (let t = 0; t < ntr && o < d.byteLength; t++) {
     if (str(4) !== 'MTrk') break;
     const len = u32(); const end = o + len;
@@ -63,6 +63,7 @@ export function parseMidi(buf) {
       if (st === 0xff) {
         const mt = d.getUint8(o++); const ml = vlq();
         if (mt === 0x51) tempos.push({ tick, us: (d.getUint8(o) << 16) | (d.getUint8(o + 1) << 8) | d.getUint8(o + 2) });
+        if (mt === 0x58 && ml >= 2) tsigs.push({ tick, n: d.getUint8(o), d: 2 ** d.getUint8(o + 1) });
         if (mt === 0x03) { name = new TextDecoder().decode(new Uint8Array(buf, o, ml)); }
         o += ml;
       } else if (st === 0xf0 || st === 0xf7) { o += vlq(); }
@@ -93,7 +94,9 @@ export function parseMidi(buf) {
   const bpm = 60 / (spt * div);
   const steady = new Set(tempos.map(x => x.us)).size <= 1;
   // sec: 틱 → 원곡 시각(빠르기 지도 그대로) — 음원으로 악보 만들기에서 MP3와 맞출 때 쓴다
-  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), bpm, steady, tracks, tempos, sec: secOf };
+  tsigs.sort((a, b) => a.tick - b.tick);
+  // meter: 첫 박자표 [분자, 분모] · meters: 곡 중간에 바뀌는 박자표(박 단위 자리 beat = 틱 ÷ 분해능)
+  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), bpm, steady, tracks, tempos, sec: secOf, meter: tsigs.length ? [tsigs[0].n, tsigs[0].d] : null, meters: tsigs.map(x => ({ beat: x.tick / div, n: x.n, d: x.d })) };
 }
 
 // 여러 파일(같은 곡의 스템들)을 한 시간 축에 놓는다: 박(틱÷분해능) × 가장 긴 파일의 평균 빠르기
@@ -194,7 +197,9 @@ export function stemToNotes(notes, bpm, offsetSec, grid, fromBar, bars, mono) {
 
 // ── MIDI 파일 쓰기 ──
 // tracks: [{name, program, channel, notes:[{p,s,d,chord?,kit?}]}]  (16분음표 단위)
+// meter: 숫자(4 = 4/4) 또는 [분자, 분모]  — 겹박자는 점4분 박마다, 8분 혼합박자는 8분마다 메트로놈
 export function writeMidi(tracks, tempo, meter = 4) {
+  const [mn, md] = Array.isArray(meter) ? meter : [meter, 4];
   const PPQ = 480, U = PPQ / 4;
   const bytes = [];
   const push = (...b) => bytes.push(...b);
@@ -206,7 +211,7 @@ export function writeMidi(tracks, tempo, meter = 4) {
   const tr0 = [];
   const us = Math.round(60e6 / tempo);
   tr0.push(0, 0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255);
-  tr0.push(0, 0xff, 0x58, 4, meter, 2, 24, 8);
+  tr0.push(0, 0xff, 0x58, 4, mn, Math.round(Math.log2(md)), md === 8 ? (mn % 3 === 0 && mn > 3 ? 36 : 12) : 24, 8);
   tr0.push(0, 0xff, 0x2f, 0);
   push(...str('MTrk'), ...u32(tr0.length), ...tr0);
   const DP = { kick: 36, snare: 38, hat: 42, crash: 49, ride: 51, tom: 45, tamb: 54 };
