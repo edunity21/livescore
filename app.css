@@ -735,3 +735,16 @@ body.kara-open{overflow:hidden}
 .ens-pre .lab{font-size:12px;font-weight:700;color:var(--mute);margin-right:4px}
 .ens-pre button{font:inherit;font-size:13px;font-weight:650;border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;cursor:pointer}
 .ens-pre button:hover{border-color:var(--brand);color:var(--brand)}
+
+/* ⌨ 키보드로 음표 고치기(피날레 스피디처럼) — 단축키 표 */
+.ed-hint .ed-keys{font:inherit;font-size:11px;padding:1px 7px;margin-left:4px;border:1px solid var(--line,#d9d6cc);border-radius:999px;background:#fff;cursor:pointer;vertical-align:baseline}
+.ed-hint .ed-keys.on{background:var(--ink,#1d1d1b);color:#fff;border-color:transparent}
+.ed-keyhelp{margin:8px 0 10px;padding:12px 14px 14px;border:1px solid var(--line,#d9d6cc);border-radius:14px;background:#fffdf7;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.ed-kh-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.ed-kh-h b{font-size:14px}.ed-kh-h small{color:#6b6a63;font-size:12px}
+.ed-kh-h button{margin-left:auto;border:0;background:transparent;font-size:15px;cursor:pointer;color:#6b6a63}
+.ed-kh-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 16px}
+.ed-kh-g h5{margin:0 0 4px;font-size:12px;color:#2f5d50;letter-spacing:.02em}
+.ed-kh-g dl{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin:0;font-size:12px;align-items:baseline}
+.ed-kh-g dt{white-space:nowrap}.ed-kh-g dd{margin:0;color:#3a3935}
+.ed-kh-g kbd{display:inline-block;min-width:16px;padding:0 5px;border:1px solid #cfcabd;border-bottom-width:2px;border-radius:5px;background:#fff;font:600 11px/17px ui-monospace,Menlo,monospace;text-align:center}

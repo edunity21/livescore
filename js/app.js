@@ -1,17 +1,17 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=14';
-import * as SND from './sound.js?v=14';
-import * as MIDI from './midi.js?v=14';
-import * as SC from './score.js?v=14';
-import * as HUM from './hum.js?v=14';
+import * as C from './core.js?v=15';
+import * as SND from './sound.js?v=15';
+import * as MIDI from './midi.js?v=15';
+import * as SC from './score.js?v=15';
+import * as HUM from './hum.js?v=15';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=14';
-import * as PLUS from './plus.js?v=14';
-import * as ORCH from './orch.js?v=14';
-import * as CAM from './cam.js?v=14';
-import * as A2S from './a2s.js?v=14';
-import * as A2Q from './a2q.js?v=14';
-import * as MXL from './mxl.js?v=14';
+import { createEditor, activeEditor } from './editor.js?v=15';
+import * as PLUS from './plus.js?v=15';
+import * as ORCH from './orch.js?v=15';
+import * as CAM from './cam.js?v=15';
+import * as A2S from './a2s.js?v=15';
+import * as A2Q from './a2q.js?v=15';
+import * as MXL from './mxl.js?v=15';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);

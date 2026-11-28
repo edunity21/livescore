@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=14';
-import * as SC from './score.js?v=14';
-import * as SND from './sound.js?v=14';
+import * as C from './core.js?v=15';
+import * as SC from './score.js?v=15';
+import * as SND from './sound.js?v=15';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -14,11 +14,11 @@ export function createEditor(host, opts) {
   host.classList.add('editor');
   host.innerHTML = `
     <div class="ed-bar" role="toolbar" aria-label="악보 편집 도구">
-      <div class="ed-sel"><span class="ed-dot"></span><b class="ed-what">음표를 눌러 고르세요</b><small class="ed-hint">↑↓ 반음 · Shift+↑↓ 옥타브 · ←→ 이동 · 3~7 길이 · Del 지우기 · 건반을 누르면 그 음으로</small></div>
+      <div class="ed-sel"><span class="ed-dot"></span><b class="ed-what">음표를 눌러 고르세요</b><small class="ed-hint">피날레 스피디처럼 — ←→ 이동 · ↑↓ 음계 · A~G 음이름 · +/− 반음 · 3~7 길이(다음으로) · . 점 · = 붙임줄 · Del 쉼표 · <button type="button" class="ed-keys" data-e="keys" title="키보드로 음표 고치기 — 단축키 전체 보기">⌨ 단축키</button></small></div>
       <div class="ed-tools">
         <div class="ed-grp" aria-label="음 높이"><button type="button" data-e="up" title="반음 위 (↑)">▲</button><button type="button" data-e="down" title="반음 아래 (↓)">▼</button><button type="button" data-e="oup" title="옥타브 위 (Shift+↑)">8va</button><button type="button" data-e="odown" title="옥타브 아래 (Shift+↓)">8vb</button></div>
         <div class="ed-grp lens" aria-label="음 길이">${LENS.map(([d, n]) => `<button type="button" data-len="${d}">${n}</button>`).join('')}</div>
-        <div class="ed-grp"><button type="button" data-e="del" title="지우기 (Delete)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button></div>
+        <div class="ed-grp"><button type="button" data-e="del" title="쉼표로 (Delete · Backspace · R)">지우기</button><button type="button" data-e="undo" title="되돌리기 (Ctrl+Z)">되돌리기</button><button type="button" data-e="redo" title="다시 하기 (Ctrl+Y · Ctrl+Shift+Z)">다시</button></div>
         <div class="ed-grp ed-plays"><button type="button" data-e="playall" class="pl" title="처음부터 듣기 (Space)">▶ 처음부터</button><button type="button" data-e="play" class="pl2" title="고른 마디부터 듣기">▶ 여기부터</button></div>
         <div class="ed-grp ed-speed" role="group" aria-label="재생 빠르기"><button type="button" data-sp="-1" title="느리게">−</button><b class="ed-spv" title="재생 빠르기(악보의 빠르기는 그대로)">100%</b><button type="button" data-sp="1" title="빠르게">＋</button></div>
         <div class="ed-grp ed-lygrp" hidden><button type="button" data-e="lyric" class="ed-lybtn" title="가사 입력 (L) — 음표를 누르고 글자를 친 뒤 띄어쓰기로 다음 음표">가사 입력</button></div>
@@ -26,9 +26,10 @@ export function createEditor(host, opts) {
         <div class="ed-grp ed-prgrp"><button type="button" data-e="print" class="ed-prbtn" title="총보·파트보 인쇄 (Ctrl+P)">인쇄</button></div>
       </div>
     </div>
+    <div class="ed-keyhelp" hidden></div>
     <div class="score ed-score"><div class="ed-cursor" hidden></div></div>`;
   const scoreEl = host.querySelector('.ed-score');
-  const E = { marks: [], tune: null, sel: null, hist: [], model: null, view: 'page', tl: null, follow: false, speed: 1 };
+  const E = { marks: [], tune: null, sel: null, hist: [], fut: [], model: null, view: 'page', tl: null, follow: false, speed: 1, len: 4 };
   try { E.view = localStorage.getItem('livescore-view') || 'page'; E.speed = +localStorage.getItem('livescore-speed') || 1; } catch (x) { }
   const SPEEDS = [.5, .6, .7, .75, .8, .9, 1, 1.1, 1.25, 1.5];
   function speedUI() {
@@ -127,7 +128,7 @@ export function createEditor(host, opts) {
     if (!s) { what.textContent = '음표를 눌러 고르세요'; return; }
     const v = voiceOf(s.vi), b0 = Math.floor((s.ref ? s.ref.s : s.s) / C.BAR) + 1, intro = E.model.intro || 0;
     const bar = b0 >= 1 ? b0 : intro ? `전주 ${b0 + intro}` : '못갖춘';
-    if (!s.ref) { what.textContent = `${v.name} · ${bar}마디 · 쉼표 — ▲▼나 건반으로 음을 넣어요`; return; }
+    if (!s.ref) { what.textContent = `${v.name} · ${bar}마디 · 쉼표 — A~G · ↑↓ · 건반으로 음을 넣어요`; return; }
     const n = s.ref;
     const nm = v.drum ? (n.kit || []).map(k => ({ kick: '큰북', snare: '작은북', hat: '하이햇', crash: '심벌', ride: '라이드', tom: '탐' }[k])).join('+') : (n.chord && n.chord.length > 1 ? '화음 ' : '') + `${C.solName(n.p, E.model.key)}(${C.sciName(n.p, E.model.key)})`;
     what.textContent = `${v.name} · ${bar}마디 · ${nm} · ${(LENS.find(l => l[0] === n.d) || [0, n.d / 4 + '박'])[1]}`;
@@ -150,8 +151,8 @@ export function createEditor(host, opts) {
   const snap = () => JSON.stringify({ v: E.model.voices.map(v => v.editable ? v.notes : null), x: opts.state ? opts.state.get() : null });
   function commit(fn) {
     const before = snap();
-    if (fn() === false) return;
-    E.hist.push(before); if (E.hist.length > 80) E.hist.shift();
+    if (fn() === false) return false;
+    E.hist.push(before); if (E.hist.length > 80) E.hist.shift(); E.fut = [];
     opts.onChange && opts.onChange();
     render(); E.tl = null;
   }
@@ -160,7 +161,7 @@ export function createEditor(host, opts) {
   function prevPitch(v, s) { const pv = sorted(v).filter(n => n.s < s).pop(); return pv ? pv.p : v.clef === 'bass' ? 43 : v.clef === 'perc' ? 38 : 67; }
   function insertAt(p) {
     const s = E.sel, v = voiceOf(s.vi);
-    const n = { p, s: s.s, d: Math.min(s.d, room(v, s.s)) };
+    const n = { p, s: s.s, d: Math.max(1, Math.min(s.d, E.len || s.d, room(v, s.s))) };
     if (v.drum) { n.p = 38; n.kit = ['snare']; }
     if (v.lyricsTarget) { n.id = C.uid(); n.lx = 'n'; }
     v.notes.push(n); v.notes.sort((a, b) => a.s - b.s);
@@ -176,28 +177,41 @@ export function createEditor(host, opts) {
     });
     preview();
   }
-  function setLen(d) {
+  function setLen(d, adv = false) {
     const s = E.sel; if (!s) return;
-    const v = voiceOf(s.vi);
-    commit(() => {
+    const v = voiceOf(s.vi); E.len = d;
+    const ok = commit(() => {
       if (!s.ref) { const r = room(v, s.s); if (r <= 0) return false; insertAt(prevPitch(v, s.s)); E.sel.ref.d = Math.min(d, r); return; }
       const r = room(v, s.ref.s, s.ref);
       if (d > r && opts.toast) opts.toast('다음 음표 앞까지만 늘였어요');
       s.ref.d = Math.max(1, Math.min(d, r));
     });
+    if (adv && ok !== false) advance();
   }
   function del() {
     const s = E.sel; if (!s || !s.ref) return;
     const v = voiceOf(s.vi), n = s.ref;
     commit(() => { const i = v.notes.indexOf(n); if (i >= 0) v.notes.splice(i, 1); E.sel = { vi: s.vi, s: n.s, d: n.d }; });
   }
-  function undo() {
-    const last = E.hist.pop(); if (!last) return opts.toast && opts.toast('되돌릴 것이 없어요');
-    const o = JSON.parse(last), arr = Array.isArray(o) ? o : o.v;
+  function restore(str) {
+    const keep = E.sel ? { vi: E.sel.vi, s: E.sel.ref ? E.sel.ref.s : E.sel.s } : null;
+    const o = JSON.parse(str), arr = Array.isArray(o) ? o : o.v;
     if (o.x != null && opts.state) opts.state.set(o.x);
     opts.model().voices.forEach((v, i) => { if (arr[i]) v.notes.splice(0, v.notes.length, ...arr[i]); });
     if (LY.on) lyClose();
     E.sel = null; opts.onChange && opts.onChange(); render();
+    if (keep) { // 같은 자리를 다시 고른다(키보드로 이어서 고치게)
+      const m = E.marks.filter(x => x.vi === keep.vi && !x.q.tiePrev && x.q.s <= keep.s).sort((a, b) => b.q.s - a.q.s)[0];
+      if (m) { E.sel = m.q.p == null ? { vi: m.vi, s: m.q.s, d: m.q.d } : { vi: m.vi, ref: m.q.ref }; paintSel(); }
+    }
+  }
+  function undo() {
+    const last = E.hist.pop(); if (!last) return opts.toast && opts.toast('되돌릴 것이 없어요');
+    E.fut.push(snap()); restore(last);
+  }
+  function redo() {
+    const nx = E.fut.pop(); if (!nx) return opts.toast && opts.toast('다시 할 것이 없어요');
+    E.hist.push(snap()); restore(nx);
   }
   function move(dir) {
     const s = E.sel; if (!s) return;
@@ -218,6 +232,107 @@ export function createEditor(host, opts) {
     });
     return true;
   }
+  // ── 피날레 스피디처럼: 키보드로 음표 고치기 ──
+  const cur0 = () => { const s = E.sel; return s ? (s.ref ? s.ref.s : s.s) : 0; };
+  const scale = () => { const k = C.KEYS[E.model.key] || C.KEYS.C; return C.MAJOR.map(x => (k.tonic + x) % 12); };
+  function stepPitch(p, dir) { const sc = scale(); let q = p; do { q += dir; } while (!sc.includes(C.pc(q)) && Math.abs(q - p) < 3); return q; } // 음계 한 칸(조표대로)
+  function letterPitch(L, ref) { // 음이름 → 조표를 따른 음, 지금 음에 가장 가까운 옥타브
+    const k = C.KEYS[E.model.key] || C.KEYS.C, sc = scale();
+    let pcv = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[L];
+    if (!sc.includes(pcv)) pcv = (pcv + (k.flat ? 11 : 1)) % 12;
+    let best = null; for (let o = -1; o <= 10; o++) { const p = pcv + 12 * o; if (best == null || Math.abs(p - ref) < Math.abs(best - ref) || (Math.abs(p - ref) === Math.abs(best - ref) && p > best)) best = p; }
+    return Math.max(21, Math.min(108, best));
+  }
+  function setPitch(p) { // 고른 음(쉼표면 새 음)을 이 높이로 — 제자리
+    const s = E.sel; if (!s) return;
+    const v = voiceOf(s.vi); if (v.drum) return opts.toast && opts.toast('드럼은 높이를 바꾸지 않아요');
+    commit(() => {
+      if (!s.ref) { insertAt(p); return; }
+      const n = s.ref, dd = p - n.p; if (!dd) return false; n.p = p; if (n.chord) n.chord = n.chord.map(x => x + dd);
+    });
+    preview();
+  }
+  function natural() { // 제자리표: 조표 표기에서 올림·내림을 뗀다
+    const s = E.sel; if (!s || !s.ref) return;
+    const k = C.KEYS[E.model.key] || C.KEYS.C, nm = C.sciName(s.ref.p, E.model.key);
+    if (!/[♯♭#b]/.test(nm.slice(1, 2))) return opts.toast && opts.toast('이미 제자리음이에요');
+    setPitch(s.ref.p + (k.flat ? 1 : -1));
+  }
+  function advance() { // 다음 칸으로(음표·쉼표)
+    const s = E.sel; if (!s) return;
+    const at = cur0(), list = E.marks.filter(m => m.vi === s.vi && !m.q.tiePrev).sort((a, b) => a.q.s - b.q.s);
+    const nx = list.find(m => m.q.s > at); if (!nx) return;
+    E.sel = nx.q.p == null ? { vi: nx.vi, s: nx.q.s, d: nx.q.d } : { vi: nx.vi, ref: nx.q.ref };
+    paintSel(); preview(); const e = scoreEl.querySelector('.ed-on'); if (e && e.scrollIntoView) e.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function goBar(dir) { // [ ] 앞·뒤 마디 첫 칸
+    const s = E.sel; if (!s) return;
+    const b = Math.floor(cur0() / C.BAR) + dir, list = E.marks.filter(m => m.vi === s.vi && !m.q.tiePrev).sort((a, b2) => a.q.s - b2.q.s);
+    const nx = list.find(m => m.q.s >= b * C.BAR && m.q.s < (b + 1) * C.BAR); if (!nx) return;
+    E.sel = nx.q.p == null ? { vi: nx.vi, s: nx.q.s, d: nx.q.d } : { vi: nx.vi, ref: nx.q.ref };
+    paintSel(); preview();
+  }
+  function goEdge(last) { const s = E.sel; if (!s) return; const list = E.marks.filter(m => m.vi === s.vi && !m.q.tiePrev).sort((a, b) => a.q.s - b.q.s); const nx = last ? list[list.length - 1] : list[0]; if (!nx) return; E.sel = nx.q.p == null ? { vi: nx.vi, s: nx.q.s, d: nx.q.d } : { vi: nx.vi, ref: nx.q.ref }; paintSel(); }
+  function goVoice(dir) { // Alt+↑↓ 위·아래 보표
+    const s = E.sel; if (!s) return; const at = cur0(), vs = E.model.voices;
+    for (let vi = s.vi + dir; vi >= 0 && vi < vs.length; vi += dir) {
+      if (!vs[vi].editable) continue;
+      const list = E.marks.filter(m => m.vi === vi && !m.q.tiePrev).sort((a, b) => a.q.s - b.q.s);
+      const nx = list.filter(m => m.q.s <= at).pop() || list[0]; if (!nx) continue;
+      E.sel = nx.q.p == null ? { vi, s: nx.q.s, d: nx.q.d } : { vi, ref: nx.q.ref }; paintSel(); preview(); return;
+    }
+  }
+  function dot() { // . 점: 1.5배(점음표면 점을 뗀다)
+    const s = E.sel; if (!s || !s.ref) return; const d = s.ref.d;
+    if (d % 3 === 0 && [3, 6, 12].includes(d)) return setLen(d / 3 * 2);
+    if (d % 2) return opts.toast && opts.toast('16분음표에는 점을 붙일 수 없어요(가장 짧은 칸이 16분)');
+    const v = voiceOf(s.vi), r = room(v, s.ref.s, s.ref);
+    if (d * 1.5 > r) return opts.toast && opts.toast('뒤에 자리가 없어 점을 붙일 수 없어요');
+    setLen(d * 1.5);
+  }
+  function tie(back = false) { // = · T 붙임줄: 같은 높이로 이어지는 음과 하나로
+    const s = E.sel; if (!s || !s.ref) return;
+    const v = voiceOf(s.vi), list = sorted(v), i = list.indexOf(s.ref);
+    const a = back ? list[i - 1] : s.ref, b = back ? s.ref : list[i + 1];
+    if (!a || !b || a === b) return opts.toast && opts.toast(back ? '앞 음표가 없어요' : '뒤 음표가 없어요');
+    if (a.p !== b.p || String(a.chord || '') !== String(b.chord || '')) return opts.toast && opts.toast('붙임줄은 같은 높이 음끼리만 — 높이를 먼저 맞춰요');
+    if (a.s + a.d !== b.s) return opts.toast && opts.toast('사이에 쉼표가 있어 붙일 수 없어요');
+    commit(() => { a.d += b.d; v.notes.splice(v.notes.indexOf(b), 1); E.sel = { vi: s.vi, ref: a }; });
+  }
+  function insertLen(d) { // Shift+3~7: 고른 자리 앞에 끼워 넣기(뒤 음들은 다음 쉼표까지 밀린다)
+    const s = E.sel; if (!s) return; const v = voiceOf(s.vi); if (v.drum) return;
+    const at = cur0(), list = sorted(v), end = E.model.end ?? E.model.bars * C.BAR;
+    let k = list.findIndex(n => n.s >= at); if (k < 0) k = list.length;
+    let c = at, j = k; while (j < list.length && list[j].s - c < d) { c = Math.max(c, list[j].s + list[j].d); j++; }
+    if ((j < list.length ? list[j].s : end) - c < d) return opts.toast && opts.toast('뒤에 밀어 낼 쉼표 자리가 없어요');
+    const p = s.ref ? s.ref.p : prevPitch(v, at); E.len = d;
+    commit(() => {
+      for (let q = k; q < j; q++) list[q].s += d;
+      const n = { p, s: at, d }; if (v.lyricsTarget) { n.id = C.uid(); n.lx = 'n'; }
+      v.notes.push(n); v.notes.sort((x, y) => x.s - y.s); E.sel = { vi: s.vi, ref: n };
+    });
+  }
+  function pull() { // Shift+Delete: 지우고 바로 뒤에 붙은 음들을 앞으로 당긴다
+    const s = E.sel; if (!s || !s.ref) return; const v = voiceOf(s.vi), n = s.ref, list = sorted(v), i = list.indexOf(n);
+    commit(() => {
+      let e = n.s + n.d; const d = n.d;
+      for (let q = i + 1; q < list.length && list[q].s === e; q++) { e = list[q].s + list[q].d; list[q].s -= d; }
+      v.notes.splice(v.notes.indexOf(n), 1);
+      const nx = list[i + 1]; E.sel = nx && nx.s === n.s ? { vi: s.vi, ref: nx } : { vi: s.vi, s: n.s, d };
+    });
+  }
+  function keyHelp(show) {
+    const box = host.querySelector('.ed-keyhelp'); show = show ?? box.hidden; box.hidden = !show;
+    host.querySelector('.ed-keys') && host.querySelector('.ed-keys').classList.toggle('on', show);
+    if (!show || box.dataset.done) return; box.dataset.done = 1;
+    const R = [['이동', [['← →', '앞·뒤 음표(쉼표)'], ['[ ]', '앞·뒤 마디'], ['Home End', '처음·끝'], ['Alt+↑↓', '위·아래 보표(파트)'], ['Esc', '고르기 풀기']]],
+      ['높이', [['↑ ↓', '음계 한 칸(조표대로)'], ['Shift+↑↓', '옥타브'], ['A~G', '음이름(조표대로, 가까운 옥타브)'], ['+ −', '반음 올림·내림'], ['N', '제자리표'], ['MIDI 건반', '누른 음으로']]],
+      ['길이', [['3 4 5 6 7', '16분·8분·4분·2분·온음표 — 바꾸고 다음으로'], ['.', '점(한 번 더 누르면 뗌)'], ['= 또는 T', '붙임줄(뒤 같은 음과 하나로)'], ['Shift+T', '앞 음과 붙임줄'], ['Shift+3~7', '그 길이를 앞에 끼워 넣기(뒤는 밀림)']]],
+      ['넣기·지우기', [['쉼표에서 A~G·↑↓', '지난 길이로 새 음'], ['Enter', '다음으로(쉼표면 새 음)'], ['Del · Backspace · R', '쉼표로'], ['Shift+Delete', '지우고 뒤 음들을 당김'], ['Ctrl+Z · Ctrl+Y', '되돌리기 · 다시 하기'], ['Space', '듣기'], ['L', '가사 입력']]]];
+    box.innerHTML = `<div class="ed-kh-h"><b>⌨ 키보드로 음표 고치기</b><small>피날레 스피디 엔트리처럼 — 높이를 고르고, 길이 숫자를 누르면 다음 음표로 넘어가요</small><button type="button" data-e="keys" aria-label="닫기">✕</button></div><div class="ed-kh-g">` +
+      R.map(([h, rows]) => `<div><h5>${h}</h5><dl>${rows.map(([k, t]) => `<dt>${k.split(' ').map(x => /[가-힣]|^·$/.test(x) ? `<span>${x}</span>` : `<kbd>${x}</kbd>`).join(' ')}</dt><dd>${t}</dd>`).join('')}</dl></div>`).join('') + '</div>';
+  }
+  host.querySelector('.ed-keyhelp').addEventListener('click', e => { if (e.target.closest('[data-e=keys]')) keyHelp(false); });
   host.querySelector('.ed-bar').addEventListener('click', e => {
     active = api;
     const b = e.target.closest('button'); if (!b) return;
@@ -226,6 +341,8 @@ export function createEditor(host, opts) {
     if (b.dataset.len) return setLen(+b.dataset.len);
     const a = b.dataset.e;
     if (a === 'undo') return undo();
+    if (a === 'redo') return redo();
+    if (a === 'keys') return keyHelp();
     if (a === 'lyric') return LY.on ? lyClose() : lyStart();
     if (a === 'print') return printMenu(b);
     if (a === 'playall') { opts.onPlay && opts.onPlay(E.model.start ?? 0, b, E.speed); if (SND.isPlaying()) follow(); else endFollow(); return; }
@@ -238,18 +355,48 @@ export function createEditor(host, opts) {
   host.addEventListener('pointerdown', () => { active = api; });
   function onKey(e) {
     if (active !== api || !host.offsetParent || e.target.closest('input,textarea,select')) return false;
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) { e.preventDefault(); redo(); return true; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return true; }
+    if (e.key === '?' && !E.sel) { e.preventDefault(); keyHelp(); return true; }
     if (e.key === ' ') { e.preventDefault(); host.querySelector(E.sel ? '[data-e=play]' : '[data-e=playall]').click(); return true; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && E.view === 'page') { e.preventDefault(); printMenu(host.querySelector('.ed-prbtn')); return true; }
     if (!e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'KeyL' && opts.lyric && lyVoice() >= 0) { e.preventDefault(); lyStart(); return true; }
     if (!E.sel) return false;
-    if (e.key === 'ArrowUp') { e.preventDefault(); pitch(e.shiftKey ? 12 : 1); return true; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); pitch(e.shiftKey ? -12 : -1); return true; }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); return true; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return true; }
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); del(); return true; }
-    if (KEYLEN[e.key]) { e.preventDefault(); setLen(KEYLEN[e.key]); return true; }
-    if (e.key === 'Escape') { E.sel = null; paintSel(); return true; }
+    if (e.ctrlKey || e.metaKey) return false; // 브라우저 단축키(탭 바꾸기 등)는 그대로
+    const s = E.sel, v = voiceOf(s.vi), code = e.code, num = /^(Digit|Numpad)(\d)$/.exec(code), d = num ? +num[2] : null;
+    const go = (f) => { e.preventDefault(); f(); return true; };
+    // 이동
+    if (e.key === 'ArrowUp' && e.altKey) return go(() => goVoice(-1));
+    if (e.key === 'ArrowDown' && e.altKey) return go(() => goVoice(1));
+    if (e.key === 'ArrowLeft') return go(() => move(-1));
+    if (e.key === 'ArrowRight') return go(() => move(1));
+    if (e.key === '[' || code === 'BracketLeft') return go(() => goBar(-1));
+    if (e.key === ']' || code === 'BracketRight') return go(() => goBar(1));
+    if (e.key === 'Home') return go(() => goEdge(false));
+    if (e.key === 'End') return go(() => goEdge(true));
+    if (e.key === 'Escape') { E.sel = null; paintSel(); keyHelp(false); return true; }
+    // 높이: ↑↓ 음계 한 칸(조표대로) · Shift 옥타브 · A~G 음이름 · +/− 반음 · N 제자리
+    const ref = s.ref ? s.ref.p : prevPitch(v, s.s);
+    if (e.key === 'ArrowUp') return go(() => e.shiftKey ? pitch(12) : (v.drum ? pitch(1) : setPitch(s.ref ? stepPitch(ref, 1) : ref)));
+    if (e.key === 'ArrowDown') return go(() => e.shiftKey ? pitch(-12) : (v.drum ? pitch(-1) : setPitch(s.ref ? stepPitch(ref, -1) : ref)));
+    const L = /^Key([A-G])$/.exec(code);
+    if (L && !e.altKey && !e.shiftKey) return go(() => setPitch(letterPitch(L[1], ref)));
+    if (e.key === '+' || code === 'NumpadAdd') return go(() => pitch(1));
+    if (e.key === '-' || e.key === '_' || code === 'NumpadSubtract' || code === 'Minus') return go(() => pitch(-1));
+    if (code === 'KeyN' && !e.shiftKey) return go(natural);
+    // 길이: 3~7(스피디와 같은 자리) — 바꾸고 다음으로 · Shift면 앞에 끼워 넣기
+    if (d != null && !e.altKey) {
+      const len = { 3: 1, 4: 2, 5: 4, 6: 8, 7: 16 }[d];
+      if (!len) return go(() => opts.toast && opts.toast(d === 1 || d === 2 ? '16분음표보다 짧은 음은 쓰지 않아요(3 = 16분음표)' : d === 8 ? '겹온음표는 쓰지 않아요(7 = 온음표)' : '3 16분 · 4 8분 · 5 4분 · 6 2분 · 7 온음표'));
+      return go(() => e.shiftKey ? insertLen(len) : setLen(len, true));
+    }
+    if (e.key === '.' || code === 'Period' || code === 'NumpadDecimal') return go(dot);
+    if (e.key === '=' || (code === 'KeyT' && !e.shiftKey)) return go(() => tie(false));
+    if (code === 'KeyT' && e.shiftKey) return go(() => tie(true));
+    // 넣기·지우기
+    if (e.key === 'Enter') return go(() => { if (!s.ref && !v.drum) { setPitch(ref); } else advance(); });
+    if ((e.key === 'Delete' || e.key === 'Backspace') && e.shiftKey) return go(pull);
+    if (e.key === 'Delete' || e.key === 'Backspace' || code === 'KeyR') return go(del);
     return false;
   }
   function avgPerBar(marks, bars) {
