@@ -1,17 +1,17 @@
 // LIVE SCORE · 화면
-import * as C from './core.js?v=13';
-import * as SND from './sound.js?v=13';
-import * as MIDI from './midi.js?v=13';
-import * as SC from './score.js?v=13';
-import * as HUM from './hum.js?v=13';
+import * as C from './core.js?v=14';
+import * as SND from './sound.js?v=14';
+import * as MIDI from './midi.js?v=14';
+import * as SC from './score.js?v=14';
+import * as HUM from './hum.js?v=14';
 import qrcode from '../lib/qrcode.mjs';
-import { createEditor, activeEditor } from './editor.js?v=13';
-import * as PLUS from './plus.js?v=13';
-import * as ORCH from './orch.js?v=13';
-import * as CAM from './cam.js?v=13';
-import * as A2S from './a2s.js?v=13';
-import * as A2Q from './a2q.js?v=13';
-import * as MXL from './mxl.js?v=13';
+import { createEditor, activeEditor } from './editor.js?v=14';
+import * as PLUS from './plus.js?v=14';
+import * as ORCH from './orch.js?v=14';
+import * as CAM from './cam.js?v=14';
+import * as A2S from './a2s.js?v=14';
+import * as A2Q from './a2q.js?v=14';
+import * as MXL from './mxl.js?v=14';
 C.useOrchestrator(ORCH);
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -2169,6 +2169,10 @@ document.querySelector('.a2s-adj').addEventListener('click', e => {
   if (a === 'hb') { r.half = !r.half; a2sBuild(); toast(r.half ? '박을 반 박 뒤로 옮겼어요' : '박을 처음 자리로 돌렸어요'); }
   if (a === 'orig' || a === 'both') a2sPlay(a === 'both');
   if (a === 'stop') a2sStop();
+  if (a === 'score') { // 악보만: 적힌 빠르기(♩ 칸의 값)대로 — 새 곡으로 열었을 때 들릴 소리
+    a2sStop(); const song = A2.song; if (!song) return;
+    SND.play([{ inst: 'voice', vol: .95, notes: song.melody }], Math.max(30, Math.min(220, +$('#a2sBpm').value || A2.res.bpm)), { from: -song.pickup });
+  }
 });
 // 원곡에서 악보 1마디(못갖춘마디면 그 앞)가 시작하는 시각
 function a2sTimeOf(u) { const { beats, bar1 } = A2.grid, song = A2.song; const b = bar1 + song.firstBar * 4 + u / 4; const i = Math.floor(b), f = b - i; const P = 60 / A2.res.bpm; const t = j => beats[j] ?? (beats[beats.length - 1] + (j - beats.length + 1) * P); return t(i) + f * (t(i + 1) - t(i)); }
