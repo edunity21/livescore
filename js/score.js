@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName, is44, beatStarts, meterSig, tempoMark } from './core.js?v=18';
+import { BAR, KEYS, METER, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=19';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -268,8 +268,11 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         if (p.chords) {
           const c = p.chords.find(c => c.s === q.s);
           if (c) {
-            const nm = chordName({ r: c.r, q: c.q }, pkey), sp = { L: nm[0], alt: nm[1] === '♯' ? 1 : nm[1] === '♭' ? -1 : 0 }; // 음 이름 자리대로(♭VII = B♭)
-            x += `      <harmony><root><root-step>${sp.L}</root-step>${sp.alt ? `<root-alter>${sp.alt}</root-alter>` : ''}</root><kind>${c.q === 'm' ? 'minor' : 'major'}</kind></harmony>\n`;
+            // 코드 기호: 음 이름 자리대로(♭VII = B♭ · 나폴리 D♭/F · 독일 증6) — 이조 파트는 그 조로, 전조한 곳은 그 자리 조로
+            const tk = c.k ? (tr ? shiftKey(c.k, tr) : c.k) : null;
+            const nm = chordName({ r: c.r, q: c.q, deg: c.deg, ...(c.b != null ? { b: c.b } : {}), ...(tk ? { k: tk } : {}) }, pkey), [hd, bn] = nm.split('/');
+            const sa = t => ({ L: t[0], alt: (t.match(/♯/g) || []).length - (t.match(/♭/g) || []).length }), sp = sa(hd), bb = bn ? sa(bn) : null;
+            x += `      <harmony><root><root-step>${sp.L}</root-step>${sp.alt ? `<root-alter>${sp.alt}</root-alter>` : ''}</root><kind text="${esc((QUAL[c.q] || QUAL['']).sym)}">${(QUAL[c.q] || QUAL['']).xml}</kind>${bb ? `<bass><bass-step>${bb.L}</bass-step>${bb.alt ? `<bass-alter>${bb.alt}</bass-alter>` : ''}</bass>` : ''}</harmony>\n`;
           }
         }
         const [type, dot] = TYPE[q.d] || ['16th', 0];
