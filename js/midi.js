@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=11';
+import { BAR } from './core.js?v=12';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };
@@ -92,7 +92,8 @@ export function parseMidi(buf) {
   tracks.forEach(tr => tr.notes.forEach(n => { n.t = n.t0 * spt; n.d = Math.max(.02, (n.t1 - n.t0) * spt); }));
   const bpm = 60 / (spt * div);
   const steady = new Set(tempos.map(x => x.us)).size <= 1;
-  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), bpm, steady, tracks };
+  // sec: 틱 → 원곡 시각(빠르기 지도 그대로) — 음원으로 악보 만들기에서 MP3와 맞출 때 쓴다
+  return { format: fmt, div, tempo: Math.round(60e6 / tempos[0].us), bpm, steady, tracks, tempos, sec: secOf };
 }
 
 // 여러 파일(같은 곡의 스템들)을 한 시간 축에 놓는다: 박(틱÷분해능) × 가장 긴 파일의 평균 빠르기

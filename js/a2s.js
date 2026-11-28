@@ -238,11 +238,13 @@ export function parseLyrics(text) {
 const sylOf = t => [...t].filter(ch => /[\p{L}\p{N}]/u.test(ch));
 
 // 가사 줄 ↔ 음표 맞추기: 줄마다 음 묶음을 고르고(남는 음은 간주·반주로 보고 뺀다), 줄 안에서는 새로 치는 음에 글자를 붙인다
-export function alignLyrics(notes, lines) {
+export function alignLyrics(notes, lines, { longCue = false } = {}) {
   const L = lines.map(l => sylOf(l.text).length), N = notes.length;
   if (!L.length || !N) return { lines: [], used: [] };
-  const gapBefore = i => i === 0 ? 9 : notes[i].t - (notes[i - 1].t + notes[i - 1].d);
-  const gapAfter = i => i === N - 1 ? 9 : notes[i + 1].t - (notes[i].t + notes[i].d);
+  // longCue(이어 부르는 노래 MIDI): 쉼이 없어도 앞 음이 길면(줄 끝 늘임) 줄이 바뀌는 자리로 본다
+  const med = longCue ? notes.map(x => x.d).sort((a, b) => a - b)[N >> 1] : 0;
+  const gapBefore = i => i === 0 ? 9 : notes[i].t - (notes[i - 1].t + notes[i - 1].d) + (longCue && notes[i - 1].d >= med * 2.2 ? .3 : 0);
+  const gapAfter = i => i === N - 1 ? 9 : notes[i + 1].t - (notes[i].t + notes[i].d) + (longCue && notes[i].d >= med * 2.2 ? .3 : 0);
   const segCost = (li, a, b) => { // 음 a..b-1을 li번째 줄에
     const k = b - a, m = L[li];
     let c = Math.abs(k - m) / Math.max(3, m) * 4 + (k < m ? (m - k) / m * 3 : 0);
@@ -331,13 +333,13 @@ const beatIndexAt = (beats, t) => { let i = 0; while (i + 1 < beats.length && Ma
 
 // ── 곡 만들기 ── 분석 결과 + 가사 → 플랫폼 곡(2마디 한 줄, 16분음표 칸)
 // notes: trackNotes 결과(vad 포함) · beats: 박 시각 · bar1: 1박인 박 번호(마디 맞춤 기준) · grid: 1|2
-export function buildSong({ notes, lyrics, beats, bar1 = 0, grid = 2, vadMin = .42, regions = null, pickups = [0, 2, 4, 6, 8, 12] }) {
+export function buildSong({ notes, lyrics, beats, bar1 = 0, grid = 2, vadMin = .42, regions = null, pickups = [0, 2, 4, 6, 8, 12], dp = false }) {
   const lines = parseLyrics(lyrics || '');
   let vn = regions ? notes.filter(x => regions.some(r => x.t + x.d * .5 >= r[0] - .3 && x.t < r[1] + .3)) : notes.filter(x => x.vad == null || x.vad >= vadMin);
   // 1) 가사 붙이기
   let placed;
   if (lines.length) {
-    const al = regions && regions.length ? alignByRegions(vn, lines, regions, lyrics) : alignLyrics(vn, lines);
+    const al = regions && regions.length ? alignByRegions(vn, lines, regions, lyrics, { dp }) : alignLyrics(vn, lines);
     placed = al.lines.flatMap(r => {
       const src = lines[r.li].text, gap = []; let k = -1; for (const ch of src) { if (/[\p{L}\p{N}]/u.test(ch)) { k++; gap[k] = ''; } else if (k >= 0) gap[k] += ch; }
       let si = 0;
@@ -411,7 +413,7 @@ export function vocalRegions(vad, { thr = .45, minLen = 2.5, join = 2.5 } = {}) 
 }
 const INSTR = /intro|interlude|instrumental|solo|break|bridge.*inst|간주|전주|후주/i;
 // 가사 묶음(연속으로 부르는 구간들) ↔ 노래 구간을 차례로 짝짓고, 묶음 안에서는 글자 수 비율과 쉼 자리로 줄을 나눈다
-export function alignByRegions(notes, lines, regions, rawText = '') {
+export function alignByRegions(notes, lines, regions, rawText = '', { dp = false } = {}) {
   if (!lines.length || !notes.length) return { lines: [] };
   // 묶음: 악기만 나오는 표시([Interlude] 등)가 있으면 그 앞뒤를 나눈다
   const groups = []; let g = null, lastSec = null;
@@ -419,6 +421,38 @@ export function alignByRegions(notes, lines, regions, rawText = '') {
   const instAfter = new Set(); { let cur = null; String(rawText).replace(/\r/g, '').split('\n').forEach(ln => { const t = ln.trim().match(/^\[([^\]]*)\]$/); if (t) { if (INSTR.test(t[1]) && cur) instAfter.add(cur); return; } if (ln.trim()) cur = ln.trim().replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim(); }); }
   lines.forEach((l, i) => { if (!g || (i > 0 && instAfter.has(lines[i - 1].text) && lastSec !== null)) { g = { idx: [] }; groups.push(g); } g.idx.push(i); lastSec = l.sec; });
   const syl = lines.map(l => sylOf(l.text).length);
+  // 노래 구간이 묶음보다 많으면(간주 표시 없이 빈 줄로만 연을 나눈 가사) 연(빈 줄·[표시] 다음 줄)에서도 나눈다
+  if (regions.length > groups.length) {
+    const stz = []; let br = false;
+    String(rawText).replace(/\r/g, '').split('\n').forEach(ln => {
+      const s = ln.trim(); if (!s || /^\[[^\]]*\]$/.test(s)) { br = true; return; }
+      if (!s.replace(/\[[^\]]*\]/g, '').replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim()) return;
+      stz.push(stz.length > 0 && br); br = false;
+    });
+    const must = new Set(groups.slice(1).map(gr => gr.idx[0]));
+    const blocks = []; lines.forEach((_, i) => { if (!blocks.length || stz[i] || must.has(i)) blocks.push([]); blocks[blocks.length - 1].push(i); });
+    if (blocks.length > groups.length) {
+      const G = Math.min(regions.length, blocks.length);
+      let parts = blocks.map(b => b);
+      if (blocks.length > G) { // 연을 G개 묶음으로: 글자 수 몫이 노래 구간 길이 몫과 가깝게(간주 자리는 꼭 나눈다)
+        const Rs = [...regions].sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, G).sort((a, b) => a[0] - b[0]);
+        const dur = Rs.map(r => r[1] - r[0]), dT = dur.reduce((a, v) => a + v, 0), bs = blocks.map(b => b.reduce((a, i) => a + syl[i], 0)), sT = bs.reduce((a, v) => a + v, 0) || 1;
+        const B = blocks.length, dp = Array.from({ length: G + 1 }, () => Array(B + 1).fill(1e9)), bk = Array.from({ length: G + 1 }, () => Array(B + 1).fill(-1));
+        dp[0][0] = 0;
+        for (let q = 1; q <= G; q++) for (let b = q; b <= B; b++) for (let a = q - 1; a < b; a++) {
+          if (dp[q - 1][a] >= 1e9) continue;
+          let bad = false; for (let x = a + 1; x < b; x++) if (must.has(blocks[x][0])) { bad = true; break; }
+          if (bad) continue;
+          let s = 0; for (let x = a; x < b; x++) s += bs[x];
+          const v = dp[q - 1][a] + (s / sT - dur[q - 1] / dT) ** 2;
+          if (v < dp[q][b]) { dp[q][b] = v; bk[q][b] = a; }
+        }
+        if (dp[G][B] < 1e9) { parts = []; let b = B; for (let q = G; q > 0; q--) { const a = bk[q][b]; parts.unshift(blocks.slice(a, b).flat()); b = a; } }
+        else parts = null;
+      }
+      if (parts) { groups.length = 0; parts.forEach(p => groups.push({ idx: p.flat ? p.flat() : p })); }
+    }
+  }
   // 노래 구간이 묶음보다 많으면 가장 짧은 것부터 버리고, 적으면 가장 긴 구간을 가장 긴 쉼에서 나눈다
   let R = regions.map(r => [...r]);
   const noteGapSplit = r => { const ns = notes.filter(x => x.t >= r[0] && x.t < r[1]); let best = null, bg = 0; for (let i = 1; i < ns.length; i++) { const gp = ns[i].t - (ns[i - 1].t + ns[i - 1].d); if (gp > bg) { bg = gp; best = ns[i].t - gp / 2; } } return best ?? (r[0] + r[1]) / 2; };
@@ -436,11 +470,13 @@ export function alignByRegions(notes, lines, regions, rawText = '') {
     const t0 = ns[0].t, t1 = ns[ns.length - 1].t + ns[ns.length - 1].d;
     const tot = gr.idx.reduce((a, i) => a + syl[i], 0);
     // 줄 경계: 글자 수 비율 자리 근처(±줄 길이의 35%)에서 가장 긴 쉼
+    // dp(이어 부르는 노래 MIDI): 쉼이 없어도 긴 음(줄 끝 늘임) 뒤를 줄이 바뀌는 자리로 본다
+    const med = dp ? ns.map(x => x.d).sort((a, b) => a - b)[ns.length >> 1] : 0;
     const cuts = [t0]; let acc = 0;
     gr.idx.slice(0, -1).forEach(i => {
       acc += syl[i]; const want = t0 + (t1 - t0) * acc / tot, span = (t1 - t0) * syl[i] / tot * .35;
       let best = want, bs = -1e9;
-      for (let k = 1; k < ns.length; k++) { const gs = ns[k - 1].t + ns[k - 1].d, ge = ns[k].t, mid = (gs + ge) / 2; if (Math.abs(mid - want) > span || mid <= cuts[cuts.length - 1] + .5) continue; const sc = (ge - gs) * 3 - Math.abs(mid - want) / span; if (sc > bs) { bs = sc; best = ge - .01; } }
+      for (let k = 1; k < ns.length; k++) { const gs = ns[k - 1].t + ns[k - 1].d, ge = ns[k].t, mid = (gs + ge) / 2; if (Math.abs(mid - want) > span || mid <= cuts[cuts.length - 1] + .5) continue; const sc = (ge - gs) * 3 - Math.abs(mid - want) / span + (dp && ns[k - 1].d >= med * 2.2 ? .9 : 0); if (sc > bs) { bs = sc; best = ge - .01; } }
       cuts.push(best);
     });
     cuts.push(t1 + 1);
@@ -460,4 +496,114 @@ export function alignByRegions(notes, lines, regions, rawText = '') {
     });
   });
   return { lines: res };
+}
+
+// ── 노래 MIDI(수노 Vocals MIDI 등)로 만들기 ── 음 찾기 없이 몇 초 만에, 음높이는 MIDI 그대로
+// raw: [{p, v, t0, t1}](틱) · sec: 틱 → 초(MIDI 빠르기 지도 — 수노 MIDI는 원곡 박을 따라 박마다 빠르기가 적혀 있다) · div: 4분음표 틱
+export function midiNotes(raw, sec, div) {
+  const ns = raw.filter(n => n.t1 - n.t0 >= div / 12).map(n => ({ p: n.p, t: sec(n.t0), e: sec(n.t1), v: n.v || 90 })).sort((a, b) => a.t - b.t || b.p - a.p);
+  const out = [];
+  for (const n of ns) {
+    const last = out[out.length - 1];
+    if (last && n.t - last.t < .03) continue; // 같은 때 친 음은 높은 음(선율) 하나만
+    if (last && last.e > n.t) last.e = n.t;
+    out.push({ ...n });
+  }
+  const vm = Math.max(1, ...out.map(n => n.v));
+  return out.filter(n => n.e - n.t >= .05).map(n => ({ p: n.p, t: n.t, d: n.e - n.t, on: .55 + .45 * n.v / vm, amp: .8 }));
+}
+export function midiBeats(sec, div, lastTick, extra = 8) {
+  const b = [], n = Math.ceil(lastTick / div) + extra;
+  for (let k = 0; k <= n; k++) b.push(sec(k * div));
+  return b;
+}
+// 노래 구간: 음이 이어지는 곳(짧은 쉼은 잇는다)
+export function noteRegions(notes, { join = 2.5, minLen = 1.5 } = {}) {
+  const m = [];
+  for (const x of notes) { const l = m[m.length - 1]; if (l && x.t - l[1] < join) l[1] = Math.max(l[1], x.t + x.d); else m.push([x.t, x.t + x.d]); }
+  return m.filter(r => r[1] - r[0] >= minLen);
+}
+export const medianBpm = beats => { const d = beats.slice(1).map((t, i) => t - beats[i]).filter(x => x > .15).sort((a, b) => a - b); return d.length ? 60 / d[d.length >> 1] : 100; };
+// 가사 한 줄이 몇 박에 걸치나 — 플랫폼은 한 줄이 2마디(8박)
+export function beatsPerLine(regions, beats, nLines) {
+  if (!nLines || !regions || !regions.length) return 0;
+  const pos = t => timeToUnits(beats, t) / 4;
+  return regions.reduce((a, r) => a + pos(r[1]) - pos(r[0]), 0) / nLines;
+}
+// 선율이 박 위에 놓인 자리와 무게(긴 음·구절 첫 음일수록 센 박에 온다)
+function beatHits(notes, beats) {
+  const pos = t => timeToUnits(beats, t) / 4, out = [];
+  notes.forEach((x, i) => {
+    const b = pos(x.t), j = Math.round(b);
+    if (Math.abs(b - j) > .2) return;
+    const len = pos(x.t + x.d) - b, gap = i ? b - pos(notes[i - 1].t + notes[i - 1].d) : 9;
+    out.push({ j, w: Math.min(4, Math.max(0, len)) + (gap >= 1.5 ? 1.5 : 0) });
+  });
+  return out;
+}
+// 마디 첫 박 찾기(선율만으로): beats[k], beats[k+4], … 가 1박
+export function melodyPhase(notes, beats, meter = 4) {
+  const sc = Array(meter).fill(0);
+  beatHits(notes, beats).forEach(({ j, w }) => { const k = ((j % meter) + meter) % meter; sc[k] += w; if (meter === 4) sc[(k + 2) % 4] += w * .3; });
+  let k = 0; for (let i = 1; i < meter; i++) if (sc[i] > sc[k]) k = i;
+  return k;
+}
+// ÷2(박 두 개를 하나로)일 때 남길 박: 선율이 더 잘 맞는 쪽(홀·짝)
+export function bestOffset(notes, beats, step) {
+  const sc = Array(step).fill(0);
+  beatHits(notes, beats).forEach(({ j, w }) => { sc[((j % step) + step) % step] += w; });
+  let o = 0; for (let i = 1; i < step; i++) if (sc[i] > sc[o]) o = i;
+  return o;
+}
+// 박 시각 고쳐 쓰기: ×2(사이에 박 넣기) · ÷2(off번째부터 하나 건너 하나) — 빠르기가 흔들려도 원곡 박을 따라간다
+export function scaleBeats(beats, mul, off = 0) {
+  if (mul === 1) return beats.slice();
+  if (mul < 1) { const st = Math.round(1 / mul); return beats.filter((_, i) => (((i - off) % st) + st) % st === 0); }
+  const st = Math.round(mul), out = [];
+  beats.forEach((t, i) => { const nx = beats[i + 1] ?? t + (t - (beats[i - 1] ?? t - .5)); for (let q = 0; q < st; q++) out.push(t + (nx - t) * q / st); });
+  return out;
+}
+export const halfShift = beats => beats.map((t, i) => (t + (beats[i + 1] ?? t + (t - (beats[i - 1] ?? t - .5)))) / 2);
+// 구간마다 마디 첫 박 다시 맞추기: 간주(2마디 넘는 쉼)에서 박을 빼, 다음 노래 구간도 제 1박에서 시작하게
+// (수노 곡은 간주에 2/4 마디가 끼거나 박 지도가 한두 박 어긋나는 일이 잦다 — 플랫폼은 간주를 빈 줄로 두므로 괜찮다)
+export function alignSections(notes, beats, regions, meter = 4) {
+  const inR = r => notes.filter(x => x.t >= r[0] - .3 && x.t < r[1] + .3);
+  const R = (regions || []).filter(r => inR(r).length);
+  if (!R.length) return { beats, k: melodyPhase(notes, beats, meter), cut: 0 };
+  const b = beats.slice(), k = melodyPhase(inR(R[0]), b, meter);
+  let cut = 0;
+  for (let i = 1; i < R.length; i++) {
+    const ns = inR(R[i]); if (ns.length < 8) continue;
+    const ia = Math.ceil(timeToUnits(b, R[i - 1][1]) / 4), ib = Math.floor(timeToUnits(b, R[i][0]) / 4);
+    if (ib - ia < 2 * meter) continue;
+    const m = (((melodyPhase(ns, b, meter) - k) % meter) + meter) % meter;
+    if (!m) continue;
+    b.splice(Math.round((ia + ib) / 2) - (m >> 1), m); cut += m;
+  }
+  return { beats: b, k, cut };
+}
+// 가사 줄마다 첫 음의 시각(가사를 음표에 맞춰 본 결과)
+export function lyricLineStarts(notes, lyrics, regions = null, dp = false) {
+  const lines = parseLyrics(lyrics || ''); if (!lines.length || !notes.length) return [];
+  const vn = regions && regions.length ? notes.filter(x => regions.some(r => x.t + x.d * .5 >= r[0] - .3 && x.t < r[1] + .3)) : notes;
+  const al = regions && regions.length ? alignByRegions(vn, lines, regions, lyrics, { dp }) : alignLyrics(vn, lines);
+  return al.lines.map(r => r.notes[0] && r.notes[0].t).filter(t => t != null).sort((a, b) => a - b);
+}
+// 가사 줄 첫 음이 2마디 줄의 첫 박에 오게 마디를 맞춘다 — 노래 구간(간주로 나뉜 곳)마다 따로 재고,
+// 어긋난 구간은 그 앞 간주에서 박을 빼서 맞춘다
+export function alignLines(beats, starts, regions, meter = 4, span = 8) {
+  const b = beats.slice(), sec = [];
+  const R = (regions || []).length ? regions : [[-1e9, 1e9]];
+  R.forEach(r => { const s = starts.filter(t => t >= r[0] - .5 && t < r[1] + .5); if (s.length) sec.push({ r, s }); });
+  if (!sec.length) return null;
+  const wrap = x => { const m = ((x % span) + span) % span; return m >= span / 2 ? m - span : m; };
+  const best = s => { const pos = s.map(t => timeToUnits(b, t) / 4); let bp = 0, bc = 1e9; for (let p = 0; p < span; p++) { const c = pos.reduce((a, x) => a + Math.min(1.5, Math.abs(wrap(x - p))), 0); if (c < bc - 1e-6) { bc = c; bp = p; } } return bp; };
+  const p0 = best(sec[0].s); let cut = 0;
+  for (let i = 1; i < sec.length; i++) {
+    const m = (((best(sec[i].s) - p0) % span) + span) % span; if (!m) continue;
+    const ia = Math.ceil(timeToUnits(b, sec[i - 1].r[1]) / 4) + 1, ib = Math.floor(timeToUnits(b, sec[i].r[0]) / 4) - 1;
+    if (ib - ia < m + 2) continue; // 간주가 짧으면 그대로
+    b.splice(Math.round((ia + ib - m) / 2), m); cut += m;
+  }
+  return { beats: b, k: p0 % meter, cut };
 }

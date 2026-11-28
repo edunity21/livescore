@@ -1,7 +1,7 @@
 // LIVE SCORE · 악보 편집기 — 악보의 음표를 눌러 고르고, 높이·길이를 바로 고친다
-import * as C from './core.js?v=11';
-import * as SC from './score.js?v=11';
-import * as SND from './sound.js?v=11';
+import * as C from './core.js?v=12';
+import * as SC from './score.js?v=12';
+import * as SND from './sound.js?v=12';
 
 const LENS = [[1, '16분'], [2, '8분'], [4, '4분'], [6, '점4분'], [8, '2분'], [12, '점2분'], [16, '온']];
 const KEYLEN = { '3': 1, '4': 2, '5': 4, '6': 8, '7': 16 };
@@ -386,7 +386,7 @@ export function createEditor(host, opts) {
     const x = (r.left + r.right) / 2 - hr.left, y = bottom - hr.top + 6;
     LY.box.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     // 화면 밖이면 보이게
-    if (E.view === 'scroll') { const sr = scoreEl.getBoundingClientRect(); if (r.left < sr.left + 60 || r.right > sr.right - 60) scoreEl.scrollLeft += r.left - sr.left - sr.width * .35; requestAnimationFrame(() => { const r2 = el.getBoundingClientRect(); LY.box.style.transform = `translate(${Math.round((r2.left + r2.right) / 2 - host.getBoundingClientRect().left)}px, ${Math.round(y)}px)`; }); }
+    if (E.view === 'scroll') { const sr = scoreEl.getBoundingClientRect(); if (r.left < sr.left + 60 || r.right > sr.right - 60) scoreEl.scrollLeft += r.left - sr.left - sr.width * .35; requestAnimationFrame(() => { if (!LY.box || !el.isConnected) return; const r2 = el.getBoundingClientRect(); LY.box.style.transform = `translate(${Math.round((r2.left + r2.right) / 2 - host.getBoundingClientRect().left)}px, ${Math.round(y)}px)`; }); }
     else { const vb = LY.box.getBoundingClientRect(), top = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr')) || 120) + (host.querySelector('.ed-bar').offsetHeight || 0) + 30; if (r.top < top || vb.bottom > window.innerHeight - 100) window.scrollBy({ top: r.top - top - 40, behavior: 'smooth' }); }
   }
   function lySave(text) {

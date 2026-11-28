@@ -11,7 +11,7 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="app.css?v=11">
+<link rel="stylesheet" href="app.css?v=12">
 </head>
 <body>
 <a class="skip" href="#main">본문 바로가기</a>
@@ -463,10 +463,10 @@
 <dialog class="dlg a2s-dlg" id="a2sDlg" aria-labelledby="a2sT">
   <div class="dlg-in">
     <div class="h2row"><h2 id="a2sT">🎧 음원으로 악보 만들기</h2><button class="btn ghost sm" type="button" id="a2sX">닫기 ✕</button></div>
-    <p class="sub">노래 선율을 찾아 음표로 바꾸고 가사를 차례로 붙여요. 완성곡에서 뽑은 선율에는 틀린 음이 섞이니 4·5단계에서 고쳐요 — 수노의 <b>노래(Vocals) 스템</b>을 함께 넣으면 훨씬 정확해요.</p>
+    <p class="sub">노래 선율을 찾아 음표로 바꾸고 가사를 차례로 붙여요. 완성곡에서 뽑은 선율에는 틀린 음이 섞이니 4·5단계에서 고쳐요 — 수노의 <b>노래(Vocals) 스템</b>을 함께 넣으면 훨씬 정확하고, 스템을 <b>MIDI</b>로 받아 넣으면 음이 가장 정확하고 몇 초면 끝나요.</p>
     <div class="a2s-in">
-      <label class="drop sm" id="a2sDrop"><input type="file" id="a2sFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"><b>완성곡 MP3</b><span>수노 → 내려받기 → MP3</span><em id="a2sName">눌러서 고르거나 끌어다 놓기</em></label>
-      <label class="drop sm" id="a2sDrop2"><input type="file" id="a2sVox" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac"><b>노래(Vocals) 스템 <small>선택</small></b><span>수노 Get Stems → Vocals</span><em id="a2sName2">없어도 돼요</em></label>
+      <label class="drop sm" id="a2sDrop"><input type="file" id="a2sFile" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/flac"><b>완성곡 MP3</b><span>수노 → 내려받기 → MP3</span><em id="a2sName">눌러서 고르거나 끌어다 놓기</em></label>
+      <label class="drop sm" id="a2sDrop2"><input type="file" id="a2sVox" accept=".mp3,.wav,.m4a,.ogg,.flac,.aac,.mid,.midi,.zip,audio/*"><b>노래(Vocals) 스템 <small>선택 · MP3 또는 MIDI</small></b><span>수노 Get Stems → Vocals (MIDI 받기도 돼요)</span><em id="a2sName2">없어도 돼요</em></label>
     </div>
     <label class="fld"><span>가사 <small>MP3 안의 가사를 저절로 읽어요 · [Verse]·[Chorus] 같은 표시는 그대로 두면 구간과 후렴을 알아봐요</small></span><textarea id="a2sLyr" rows="5" placeholder="가사를 통째로 붙여 넣어요 (줄마다 한 소절)"></textarea></label>
     <div class="row a2s-run"><label class="ctl"><span>박 맞춤</span><select id="a2sGrid"><option value="2">8분음표</option><option value="1">16분음표</option></select></label><button class="btn" type="button" id="a2sGo" disabled>악보 만들기</button><span class="hint" id="a2sState">MP3를 넣어 주세요</span></div>
@@ -505,6 +505,6 @@
 
 <script src="lib/abcjs-basic-min.js"></script>
 <script src="lib/lame.min.js"></script>
-<script type="module" src="js/app.js?v=11"></script>
+<script type="module" src="js/app.js?v=12"></script>
 </body>
 </html>
