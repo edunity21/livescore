@@ -2192,7 +2192,8 @@ $('#a2sUse').onclick = () => {
     autoSnap('음원으로 새 곡 전'); a2sStop();
     const old = S; S = blank(); S.group = old.group; S.roles = old.roles; S.mode = old.mode;
     const srcF = A2.mix || A2.vox || A2.midi.file;
-    S.title = (A2.tag && A2.tag.title) || (A2.midi ? A2.midi.file.name.replace(/\s*\([^()]*\)\s*\.midi?$/i, '') : srcF.name).replace(/\.[^.]+$/, '').slice(0, 40);
+    S.title = ((A2.tag && A2.tag.title) || (A2.midi ? A2.midi.file.name.replace(/\s*\([^()]*\)\s*\.midi?$/i, '') : srcF.name).replace(/\.[^.]+$/, ''))
+      .replace(/\s*\((?:lead |backing |main )?(?:vocals?|voice|보컬|노래)\)\s*$/i, '').replace(/^\d+[ _]+/, '').slice(0, 40) || '새 노래'; // 스템 이름표 '(Vocals)'는 뺀다
     S.tempo = Math.max(40, Math.min(200, Math.round(+$('#a2sBpm').value || A2.res.bpm)));
     S.key = A2.key; S.pickup = song.pickup; C.METER.pickup = S.pickup; S.grid = $('#a2sGrid').value === 'auto' ? (song.melody.some(n => n.s % 2 || n.d % 2) ? 1 : 2) : +$('#a2sGrid').value;
     S.lyrics = song.lines.map(l => ({ text: l.text, chorus: !!l.chorus }));
