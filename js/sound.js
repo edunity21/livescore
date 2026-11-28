@@ -1,5 +1,5 @@
 // LIVE SCORE · 소리 — 내장 신시사이저, 메트로놈, 재생, WAV 만들기 (인터넷 음원 없이)
-import { BAR } from './core.js?v=21';
+import { BAR } from './core.js?v=22';
 
 let ctx = null, master = null;
 export function audio() {

@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, LINE, KEYS, MAJOR, pc, chordTones, bassOf, keyAtS, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=21';
+import { BAR, LINE, KEYS, MAJOR, pc, chordTones, bassOf, keyAtS, barStart, barOf, barLen, meterAtBar, useMeter, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=22';
 
 // ── 박자 도우미 ── 4/4는 예전 무늬 그대로, 다른 박자(홑·겹·혼합)는 박·묶음에 맞춰 만든다
 const H2 = c => is44() ? (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]) : (c.d >= BAR ? groupSplit(c.d) : [[0, c.d]]); // 반 마디씩 → 묶음씩
@@ -23,7 +23,7 @@ function barPos(kind) {
 }
 // 화음 구간 c 안의 마디 자리(pos) → [[구간 안 자리, 다음 자리까지 길이]] (마디에 맞춰 놓는다)
 function posIn(c, pos) {
-  const us = []; for (let b = Math.floor(c.s / BAR) * BAR; b < c.s + c.d; b += BAR) pos.forEach(x => { const a = b + x; if (a >= c.s && a < c.s + c.d) us.push(a - c.s); });
+  const us = []; for (let bi = barOf(c.s); barStart(bi) < c.s + c.d; bi++) { const b = barStart(bi); pos.forEach(x => { const a = b + x; if (a >= c.s && a < c.s + c.d && x < barLen(bi)) us.push(a - c.s); }); }
   us.sort((a, b) => a - b); if (!us.length || us[0] > 0) us.unshift(0);
   return [...new Set(us)].map((u, i, a) => [u, (a[i + 1] ?? c.d) - u]);
 }
@@ -134,7 +134,7 @@ function drumPart(hits, a, b) {
   const by = new Map();
   hits.forEach(h => { if (h.s < a || h.s >= b) return; if (!by.has(h.s)) by.set(h.s, new Set()); h.kit.forEach(k => by.get(h.s).add(k)); });
   const ss = [...by.keys()].sort((x, y) => x - y);
-  return ss.map((s, i) => { const kit = playableKit([...by.get(s)]); return { s, d: Math.min((ss[i + 1] ?? b) - s, 4, BAR - (((s % BAR) + BAR) % BAR)), p: { kick: 36, snare: 38, tom: 45, crash: 49, ride: 51, hat: 42 }[kit[0]], kit }; }).filter(n => n.kit.length);
+  return ss.map((s, i) => { const kit = playableKit([...by.get(s)]); return { s, d: Math.min((ss[i + 1] ?? b) - s, 4, barStart(barOf(s) + 1) - s), p: { kick: 36, snare: 38, tom: 45, crash: 49, ride: 51, hat: 42 }[kit[0]], kit }; }).filter(n => n.kit.length);
 }
 
 // ── 화음 쌓기 ──
@@ -174,7 +174,7 @@ function guitarShape(c, tonic, power) { // 기타 한 사람이 잡을 수 있�
 // o: {melody, chords, key, bars, start, end, intro, sections, lead, genre, mood, ens, chorusBar(b), sources?, old?:{drums,bass}}
 export function orchestrate(o) {
   const { chords, key, genre = 'pop', mood = 'bright', melody = [] } = o;
-  const start = o.start ?? 0, end = o.end ?? (o.bars || 0) * BAR;
+  const start = o.start ?? 0, end = o.end ?? barStart(o.bars || 0);
   const ens = { ...defaultEns(), ...(o.ens || {}) };
   const src = o.sources || {}, old = o.old || {}, lead = o.lead || [];
   const sections = o.sections && o.sections.length ? o.sections : [{ s: start, name: 'Verse' }];
@@ -258,11 +258,11 @@ export function orchestrate(o) {
   const hookOr = (range, ns) => mono([...leadIn(range), ...ns]);
   const lastLong = (range, ns) => { const c = chords.find(x => x.s === lastS); if (!c) return ns; const t = chordTones(c, tonic), p = nearest(tonesIn([t[0]], range[0], range[1]), ns.length ? ns[ns.length - 1].p : range[0] + 7); return p == null ? ns : mono([...ns.filter(n => n.s < c.s), { p, s: c.s, d: c.d }]); };
   // 타악기: 마디마다 무늬(구간에 따라)
-  function patHits(fn) { const hits = []; for (let b = Math.floor(start / BAR); b * BAR < end; b++) { const s0 = b * BAR; fn(kindAt(s0), s0 + BAR >= end).forEach(([u, kit]) => hits.push({ s: s0 + u, kit })); } return hits; }
+  function patHits(fn) { const hits = []; for (let b = barOf(start); barStart(b) < end; b++) { const s0 = barStart(b), L = barLen(b); useMeter(meterAtBar(b), () => fn(kindAt(s0), s0 + L >= end)).forEach(([u, kit]) => { if (u < L) hits.push({ s: s0 + u, kit }); }); } return hits; }
   function percNotes(hits) {
     const by = new Map(); hits.forEach(h => { if (h.s < start || h.s >= end) return; if (!by.has(h.s)) by.set(h.s, new Set()); h.kit.forEach(k => by.get(h.s).add(k)); });
     const ss = [...by.keys()].sort((x, y) => x - y);
-    return ss.map((s, i) => { const kit = [...by.get(s)]; return { s, d: Math.min((ss[i + 1] ?? end) - s, 4, BAR - (((s % BAR) + BAR) % BAR)), p: { kick: 36, snare: 38, tamb: 54 }[kit[0]] || 38, kit }; });
+    return ss.map((s, i) => { const kit = [...by.get(s)]; return { s, d: Math.min((ss[i + 1] ?? end) - s, 4, barStart(barOf(s) + 1) - s), p: { kick: 36, snare: 38, tamb: 54 }[kit[0]] || 38, kit }; });
   }
 
   // 플루트(관악기 독주/합주): 전주는 훅 선율, 벌스는 쉼, 후렴은 노래를 옥타브 위로 — 2명 이상이면 3도 아래를 함께

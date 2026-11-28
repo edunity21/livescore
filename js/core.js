@@ -82,12 +82,54 @@ export function setMeter(key = '4/4', lineBars) {
   const m = METERS[key] || METERS['4/4'], k = METERS[key] ? key : '4/4';
   Object.assign(METER, { key: k, n: m.n, d: m.d, beats: m.beats.slice(), groups: m.groups.slice(), kind: m.kind, lineBars: lineBars || m.line });
   BAR = m.beats.reduce((a, v) => a + v, 0); LINE = BAR * METER.lineBars;
+  if (!TEMP) { BARMAP.base = k; BARMAP.starts = [0]; } // 변박자 바탕 박자
   // 못갖춘마디 고르기: 마디보다 짧은 8분음표 칸 묶음
   Object.keys(PICKUPS).forEach(x => delete PICKUPS[x]);
   if (k === '4/4') Object.assign(PICKUPS, { 0: '갖춘마디', 2: '반 박(♪)', 4: '1박(♩)', 6: '1박 반(♩.)', 8: '2박', 12: '3박' });
   else { PICKUPS[0] = '갖춘마디'; for (let u = 2; u < BAR; u += 2) PICKUPS[u] = pickupName(u); }
   return METER;
 }
+// ── 변박자(v22): 마디마다 박자 — [{ bar, meter, one? }] 그 마디부터 그 박자(one이면 그 마디만, 다음 마디는 앞 박자로) ──
+// 마디 자리는 barStart(b) · barOf(s) · barLen(b)로 센다(바뀜이 없으면 예전처럼 b × BAR)
+let TEMP = 0;
+export const BARMAP = { list: [], base: '4/4', starts: [0] };
+const mlen = k => (METERS[k] || METERS['4/4']).beats.reduce((a, v) => a + v, 0);
+export function setBarMap(list) {
+  BARMAP.list = (list || []).filter(x => x && METERS[x.meter] && x.bar >= 0).map(x => ({ bar: Math.round(x.bar), meter: x.meter, ...(x.one ? { one: 1 } : {}) })).sort((a, b) => a.bar - b.bar).filter((x, i, a) => !i || a[i - 1].bar !== x.bar);
+  BARMAP.starts = [0]; return BARMAP.list;
+}
+export const hasBarMap = () => BARMAP.list.length > 0;
+export function meterAtBar(b) {
+  if (!BARMAP.list.length || b < 0) return BARMAP.base;
+  let k = BARMAP.base;
+  for (const x of BARMAP.list) { if (x.bar > b) break; if (x.one) { if (x.bar === b) k = x.meter; } else k = x.meter; }
+  return k;
+}
+export const barLen = b => (BARMAP.list.length ? mlen(meterAtBar(b)) : BAR);
+export function barStart(b) {
+  if (!BARMAP.list.length) return b * BAR;
+  if (b <= 0) return b * mlen(BARMAP.base);
+  const st = BARMAP.starts; while (st.length <= b) st.push(st[st.length - 1] + mlen(meterAtBar(st.length - 1)));
+  return st[b];
+}
+export function barOf(s) {
+  if (!BARMAP.list.length) return Math.floor(s / BAR);
+  if (s < 0) return Math.floor(s / mlen(BARMAP.base));
+  const st = BARMAP.starts; while (st[st.length - 1] <= s) barStart(st.length);
+  let lo = 0, hi = st.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (st[mid] <= s) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+// 잠깐 다른 박자로 셈(그 마디의 박·묶음 자리 계산) — 끝나면 원래대로
+export function useMeter(k, fn) {
+  if (!k || k === METER.key) return fn();
+  const m = METERS[k]; if (!m) return fn();
+  const keep = { key: METER.key, n: METER.n, d: METER.d, beats: METER.beats, groups: METER.groups, kind: METER.kind }, kb = BAR;
+  TEMP++; Object.assign(METER, { key: k, n: m.n, d: m.d, beats: m.beats, groups: m.groups, kind: m.kind }); BAR = mlen(k);
+  try { return fn(); } finally { Object.assign(METER, keep); BAR = kb; TEMP--; }
+}
+// 박자표 글(그 박자) · 박자가 바뀌는 마디인지
+export function meterSigOf(k) { const m = METERS[k] || METERS['4/4'], u = 16 / m.d; return { num: m.kind === 'mixed' ? m.groups.map(g => g / u).join('+') : String(m.n), den: m.d }; }
+export const meterChg = b => b > 0 && BARMAP.list.length > 0 && meterAtBar(b) !== meterAtBar(b - 1);
 // 못갖춘마디 이름: 홑박자는 박(♩), 8분 박자는 ♪ 개수
 export function pickupName(u) {
   if (!u) return '갖춘마디';
@@ -99,6 +141,10 @@ export const beatStarts = () => { const o = []; let a = 0; METER.beats.forEach(b
 export const groupStarts = () => { const o = []; let a = 0; METER.groups.forEach(g => { o.push(a); a += g; }); return o; };
 // 마디 안 자리 u의 세기: 마디 첫 박 1 · 묶음 첫 박 .8 · 박 .55 · 8분 .3 · 16분 .12
 export function metWeight(u) {
+  if (BARMAP.list.length && u >= 0) { const b = barOf(u), a = barStart(b); return useMeter(meterAtBar(b), () => metWeight0(u - a)); }
+  return metWeight0(u);
+}
+function metWeight0(u) {
   const m = ((u % BAR) + BAR) % BAR;
   if (m === 0) return 1;
   if (groupStarts().includes(m)) return .8;
@@ -215,6 +261,14 @@ const VALS = [16, 12, 8, 6, 4, 3, 2, 1];
 export function splitDur(pos, dur, rest = false) {
   const out = [];
   let p = pos, left = dur;
+  if (BARMAP.list.length) { // 변박자: 마디마다 그 박자로 나눈다
+    while (left > 0) {
+      const b = barOf(p), inBar = p - barStart(b), room = Math.min(left, barLen(b) - inBar);
+      const v = useMeter(meterAtBar(b), () => (is44() ? VALS.find(x => x <= room && fits(inBar, x, rest)) : VALSX.find(x => x <= room && fitsX(inBar, x, rest))) || 1);
+      out.push({ s: p, d: v }); p += v; left -= v;
+    }
+    return out;
+  }
   const four = is44();
   while (left > 0) {
     const inBar = ((p % BAR) + BAR) % BAR;
@@ -234,7 +288,7 @@ export function toPieces(notes, totalUnits, start = 0) {
   const pushRest = (from, to) => {
     // 쉼표는 마디마다 따로 나눈다
     let a = from;
-    while (a < to) { const e = Math.min(to, (Math.floor(a / BAR) + 1) * BAR); for (const r of splitDur(a, e - a, true)) pieces.push({ s: r.s, d: r.d, p: null }); a = e; }
+    while (a < to) { const e = Math.min(to, barStart(barOf(a) + 1)); for (const r of splitDur(a, e - a, true)) pieces.push({ s: r.s, d: r.d, p: null }); a = e; }
   };
   for (const n of seq) {
     if (n.s >= totalUnits) break;
@@ -252,8 +306,8 @@ export function toPieces(notes, totalUnits, start = 0) {
 
 // ── 가사 흐름(줄 = lineBars마디 — 4/4는 2마디) ──
 // 반환: Map(note.id → {text, kind:'syl'|'ext'|'none'}), 줄별 점검
-export function lineStart(li) { return li * LINE - METER.pickup; }
-export function lineOf(s) { return Math.floor((s + METER.pickup) / LINE); }
+export function lineStart(li, lb = METER.lineBars) { return (BARMAP.list.length ? barStart(li * lb) : li * BAR * lb) - METER.pickup; }
+export function lineOf(s, lb = METER.lineBars) { return BARMAP.list.length ? Math.floor(barOf(s + METER.pickup) / lb) : Math.floor((s + METER.pickup) / (BAR * lb)); }
 export function lyricFlow(melody, lines, linesBars = METER.lineBars) {
   const map = new Map();
   const report = [];
@@ -261,7 +315,7 @@ export function lyricFlow(melody, lines, linesBars = METER.lineBars) {
   const sorted = [...melody].filter(n => n.p != null).sort((a, b) => a.s - b.s);
   lines.forEach((line, li) => {
     const syl = syllables(line.text);
-    const inLine = sorted.filter(n => n.s >= li * span - P && n.s < (li + 1) * span - P);
+    const inLine = sorted.filter(n => n.s >= lineStart(li, linesBars) && n.s < lineStart(li + 1, linesBars));
     const brk = []; { let j = -1; for (const ch of line.text || '') { if (/[\p{L}\p{N}]/u.test(ch)) { j++; brk[j] = false; } else if (j >= 0 && /\s/.test(ch)) brk[j] = true; } } // 낱말 끝(띄어쓰기 앞) 글자
     let k = 0, slots = 0;
     inLine.forEach((n, i) => {
@@ -287,7 +341,7 @@ export function setNoteLyric(melody, lines, id, text) {
   const n = melody.find(x => x.id === id); if (!n || n.p == null) return null;
   const li = Math.max(0, lineOf(n.s)); while (lines.length <= li) lines.push({ text: '', chorus: false });
   const span = LINE, P = METER.pickup;
-  const inLine = melody.filter(x => x.p != null && x.s >= li * span - P && x.s < (li + 1) * span - P).sort((a, b) => a.s - b.s);
+  const inLine = melody.filter(x => x.p != null && x.s >= lineStart(li) && x.s < lineStart(li + 1)).sort((a, b) => a.s - b.s);
   const { map } = lyricFlow(melody, lines);
   const src = lines[li].text || '', all = syllables(src);
   const gap = []; let k = -1; for (const ch of src) { if (/[\p{L}\p{N}]/u.test(ch)) { k++; gap[k] = ''; } else if (k >= 0) gap[k] += ch; }
@@ -322,7 +376,7 @@ export function setNoteLyric(melody, lines, id, text) {
 export function placeSyllable(melody, lines, li, j, targetId) {
   const span = LINE, P = METER.pickup;
   for (let guard = 0; guard < 24; guard++) {
-    const notes = melody.filter(n => n.p != null && n.s >= li * span - P && n.s < (li + 1) * span - P).sort((a, b) => a.s - b.s);
+    const notes = melody.filter(n => n.p != null && n.s >= lineStart(li) && n.s < lineStart(li + 1)).sort((a, b) => a.s - b.s);
     const ti = notes.findIndex(n => n.id === targetId);
     if (ti < 0) return;
     const { map } = lyricFlow(melody, lines);
@@ -353,7 +407,7 @@ export function placeSyllable(melody, lines, li, j, targetId) {
 export const KEYMAP = { list: [] };
 export function setKeyMap(list) { KEYMAP.list = (list || []).filter(x => x && KEYS[x.key] && x.bar > 0).map(x => ({ bar: Math.round(x.bar), key: x.key })).sort((a, b) => a.bar - b.bar).filter((x, i, a) => !i || a[i - 1].bar !== x.bar); return KEYMAP.list; }
 export function keyAtBar(b, base, list = KEYMAP.list) { let k = base; for (const x of list) if (x.bar <= b) k = x.key; return k; }
-export const keyAtS = (s, base, list = KEYMAP.list) => keyAtBar(Math.floor(s / BAR), base, list);
+export const keyAtS = (s, base, list = KEYMAP.list) => keyAtBar(barOf(s), base, list);
 // 같은 조를 이어 붙이고(앞과 같으면 지움) 정리한 조 지도
 export function cleanKeyMap(list, base) { const out = []; let cur = base; (list || []).slice().sort((a, b) => a.bar - b.bar).forEach(x => { if (x.bar > 0 && KEYS[x.key] && x.key !== cur) { out.push({ bar: x.bar, key: x.key }); cur = x.key; } }); return out; }
 // 전조 찾기: 가사 한 줄(또는 두 마디)마다 음 높이 분포를 장조·나란한 단조 틀(크럼한슬)에 견주고,
@@ -496,18 +550,20 @@ export function harmonize(melody, bars, key, opts = {}) {
   const pool0 = DEG.filter(d => d.g <= maxG && (d.g > 0 || !base || base.includes(d.name) || d.c7 || d.name === 'vii°') && (maxG > 0 || !d.c7 || d.name === 'V7'));
   const per = [1, 2, 4].includes(+opts.perBar) ? +opts.perBar : 1;
   const cut = per === 1 ? [0] : per === 2 ? (is44() ? [0, 8] : METER.groups.length > 1 ? groupStarts() : beatStarts().filter((_, i, a) => i === 0 || i === a.length - 1)) : beatStarts();
-  const SEG = []; for (let b = 0; b < bars; b++) cut.forEach((c, i) => SEG.push([b * BAR + c, (cut[i + 1] ?? BAR) - c]));
+  const SEG = [];
+  if (BARMAP.list.length) for (let b = 0; b < bars; b++) useMeter(meterAtBar(b), () => { const ct = per === 1 ? [0] : per === 2 ? (is44() ? [0, 8] : METER.groups.length > 1 ? groupStarts() : beatStarts().filter((_, i, a) => i === 0 || i === a.length - 1)) : beatStarts(); const a = barStart(b), L = barLen(b); ct.forEach((c, i) => SEG.push([a + c, (ct[i + 1] ?? L) - c])); });
+  else for (let b = 0; b < bars; b++) cut.forEach((c, i) => SEG.push([b * BAR + c, (cut[i + 1] ?? BAR) - c]));
   const segs = SEG.length, perN = cut.length;
   // 조 지도: 자리마다 그 조(전조·변조)
   const kmap = (opts.keys || KEYMAP.list || []).filter(x => KEYS[x.key]).sort((a, b) => a.bar - b.bar);
-  const keyAt = s => { let kk = key; for (const x of kmap) if (x.bar * BAR <= s) kk = x.key; return kk; };
+  const keyAt = s => { let kk = key; for (const x of kmap) if (barStart(x.bar) <= s) kk = x.key; return kk; };
   const segKey = SEG.map(([s]) => keyAt(s));
   // 선율: 앞뒤 음(비화성음이 2도로 오가는지)
   const mel = melody.filter(n => n.p != null).slice().sort((a, b) => a.s - b.s);
   const nb = mel.map((n, i) => ({ n, pv: mel[i - 1], nx: mel[i + 1] }));
   // 가사 줄 끝(종지 자리): 줄마다 LINE칸 · 빈 줄은 간주
   const lines = opts.lines || [], LN = LINE;
-  const lineOfSeg = i => Math.floor(SEG[i][0] / LN);
+  const lineOfSeg = i => BARMAP.list.length ? Math.floor(barOf(SEG[i][0]) / METER.lineBars) : Math.floor(SEG[i][0] / LN);
   const lineEndSeg = new Set(), linePenSeg = new Set();
   for (let i = 0; i < segs; i++) { const l = lineOfSeg(i); if (i === segs - 1 || lineOfSeg(i + 1) !== l) { lineEndSeg.add(i); if (i > 0) linePenSeg.add(i - 1); } }
   const sung = l => lines.length ? !!(lines[l] && String(lines[l].text || '').trim()) : true;
@@ -578,7 +634,7 @@ export function harmonize(melody, bars, key, opts = {}) {
   const out = [];
   best[0].path.forEach((ch, i) => {
     const [s, segLen] = SEG[i], prev = out[out.length - 1];
-    if (prev && prev.deg === ch.name && prev.k0 === ch.kk && Math.floor(prev.s / BAR) === Math.floor(s / BAR)) { prev.d += segLen; return; }
+    if (prev && prev.deg === ch.name && prev.k0 === ch.kk && barOf(prev.s) === barOf(s)) { prev.d += segLen; return; }
     const lk = KEYS[ch.kk] || k0, c = { s, d: segLen, r: ch.R, q: ch.q, deg: ch.name, g: ch.g, k0: ch.kk };
     if (ch.b != null) c.b = pc(lk.tonic + ch.b - k0.tonic);
     out.push(c);
@@ -680,7 +736,7 @@ function drumBar(genre, mood, bar, last, chorus, first) {
 }
 
 export function arrange(melody, lines, key, settings, variant = 0, fixed = null) {
-  const bars = Math.max(lines.length * METER.lineBars, Math.ceil(Math.max(0, ...melody.map(n => n.s + n.d)) / BAR), 2);
+  const bars = Math.max(lines.length * METER.lineBars, barOf(Math.max(0, ...melody.map(n => n.s + n.d)) - 1) + 1, 2);
   if (!ORCH) return arrangeOld(melody, lines, key, settings, variant, fixed, bars);
   const r = arrangeOld(melody, lines, key, { ...settings, inst: ['drums', 'bass'] }, variant, fixed, bars); // 화음 진행과 드럼·베이스 리듬 틀
   const ly = layoutOf(melody, lines, r.chords, settings.intro ?? 2, bars);
@@ -695,9 +751,9 @@ export function layoutOf(melody, lines, chords, intro, bars) {
   const P = METER.pickup;
   intro = Math.max(0, Math.min(4, intro | 0));
   const melEnd = Math.max(0, ...melody.map(n => n.s + n.d));
-  const out = { intro, start: intro ? -intro * BAR : -P, end: bars * BAR - (intro || melEnd > bars * BAR - P ? 0 : P), sections: [], lead: [], chords: chords.filter(c => c.s >= 0) };
+  const E0 = barStart(bars), out = { intro, start: intro ? -intro * BAR : -P, end: E0 - (intro || melEnd > E0 - P ? 0 : P), sections: [], lead: [], chords: chords.filter(c => c.s >= 0) };
   if (intro) {
-    const ci = lines.findIndex(l => l.chorus), hs = (ci >= 0 ? ci : 0) * LINE, len = intro * BAR, sh = -len - hs;
+    const ci = lines.findIndex(l => l.chorus), hs = barStart((ci >= 0 ? ci : 0) * METER.lineBars), len = intro * BAR, sh = -len - hs;
     const hook = chords.filter(c => c.s >= hs && c.s < hs + len);
     out.chords = [...hook.map(c => ({ ...c, s: c.s + sh, d: Math.min(c.d, hs + len - c.s) })), ...out.chords];
     if (!hook.length) for (let b = 0; b < intro; b++) out.chords.unshift({ ...(chords[0] || { r: 0, q: '', name: 'C' }), s: -len + b * BAR, d: BAR });
@@ -714,7 +770,7 @@ export function layoutOf(melody, lines, chords, intro, bars) {
     const nm = empty(li) && li > 0 ? (lines.slice(li).every((_, k) => empty(li + k)) ? 'Outro' : 'Interlude') : l.chorus ? 'Chorus' : 'Verse';
     if (nm === prev) return;
     prev = nm; seen[nm] = (seen[nm] || 0) + 1;
-    out.sections.push({ bar: li * METER.lineBars, s: li * LINE, name: seen[nm] > 1 ? `${nm} ${seen[nm]}` : nm });
+    out.sections.push({ bar: li * METER.lineBars, s: barStart(li * METER.lineBars), name: seen[nm] > 1 ? `${nm} ${seen[nm]}` : nm });
   });
   return out;
 }
@@ -732,7 +788,7 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
   const per = settings.perBar && settings.perBar !== 'auto' ? +settings.perBar : variant === 2 ? 2 : 1;
   let chords = harmonize(melody, bars, key, { pool: pools[variant % 3], range: settings.range || 'all', perBar: per, seed: variant + 1, flow: variant === 1 ? .6 : 1.1, bias: biases[variant % 3], lines, genre, keys: settings.keys });
   if (fixed && fixed.length) { // 학생이 고른 코드로 바꾸기(나누고 합친 자리 그대로) — 고르지 않은 자리만 새로 붙인 화음으로 채운다
-    const fx = fixed.filter(f => f.s >= 0 && f.s < bars * BAR).map(f => makeChord(f.r, f.q, f.s, Math.min(f.d, bars * BAR - f.s), key, f));
+    const fx = fixed.filter(f => f.s >= 0 && f.s < barStart(bars)).map(f => makeChord(f.r, f.q, f.s, Math.min(f.d, barStart(bars) - f.s), key, f));
     const cover = (a, b) => fx.some(f => f.s < b && a < f.s + f.d);
     chords = [...fx, ...chords.filter(c => !cover(c.s, c.s + c.d))].sort((a, b) => a.s - b.s);
   }
@@ -748,16 +804,16 @@ function arrangeOld(melody, lines, key, settings, variant, fixed, bars) {
     if (!inst.includes(id)) continue;
     const notes = [];
     if (id === 'drums') {
-      for (let b = 0; b < bars; b++) drumBar(genre, mood, b, b === bars - 1, chorusBar(b), b === 0).forEach(h => notes.push({ p: DRUM[h.k], k: h.k, s: h.s, d: h.d }));
+      for (let b = 0; b < bars; b++) { const a = barStart(b), L = barLen(b); useMeter(meterAtBar(b), () => drumBar(genre, mood, 0, b === bars - 1, chorusBar(b), b === 0)).forEach(h => { if (h.s < L) notes.push({ p: DRUM[h.k], k: h.k, s: a + h.s, d: h.d }); }); }
       // 같은 자리 묶기 → 화음, 길이는 다음 타격까지
       const by = new Map();
       notes.forEach(n => { if (!by.has(n.s)) by.set(n.s, []); by.get(n.s).push(n.k); });
       const ss = [...by.keys()].sort((a, b) => a - b);
-      const grouped = ss.map((s, i) => ({ s, d: Math.min((ss[i + 1] ?? bars * BAR) - s, 4), p: DRUM[by.get(s)[0]], kit: [...new Set(by.get(s))] }));
+      const grouped = ss.map((s, i) => ({ s, d: Math.min((ss[i + 1] ?? barStart(bars)) - s, 4), p: DRUM[by.get(s)[0]], kit: [...new Set(by.get(s))] }));
       mk(id, grouped); continue;
     }
     for (const c of chords) {
-      const b = Math.floor(c.s / BAR), lastBar = b === bars - 1;
+      const b = barOf(c.s), lastBar = b === bars - 1;
       const ch = { r: c.r, q: c.q };
       const root = bassOf(c, k.tonic);
       if (id === 'bass') {

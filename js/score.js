@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, KEYMAP, keyAtBar, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=21';
+import { BAR, KEYS, METER, KEYMAP, keyAtBar, barStart, barLen, meterAtBar, meterChg, meterSigOf, useMeter, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=22';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
@@ -53,10 +53,10 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
   if (intro) pickup = 0; // 전주가 있으면 여린내기 음은 전주 마지막 마디 안에 들어간다
   if (cutEnd == null) { // 못갖춘마디로 시작하면 마지막 마디를 그만큼 짧게(그 자리에 음이 없을 때만)
     const lastEnd = Math.max(0, ...voices.flatMap(v => v.notes.map(n => n.s + n.d)));
-    cutEnd = lastEnd <= bars * BAR - pickup ? pickup : 0;
+    cutEnd = lastEnd <= barStart(bars) - pickup ? pickup : 0;
   }
   const first = intro ? -intro : pickup ? -1 : 0;
-  const total = bars * BAR - cutEnd, start = intro ? -intro * BAR : -pickup;
+  const total = barStart(bars) - cutEnd, start = intro ? -intro * BAR : -pickup;
   const lines = []; let pos = 0;
   const push = l => { lines.push(l); pos += l.length + 1; };
   const marks = [];
@@ -101,10 +101,10 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
   // 줄마다 마디: 보통은 perLine 마디씩, 파트보(multirest)는 이어진 빈 마디를 여러 마디 쉼표(Z) 한 칸으로 센다
   const lineBars = [];
   if (multirest) {
-    const empty = b => vp.every(({ pieces, pre }) => !pieces.some(q => q.s >= b * BAR && q.s < (b + 1) * BAR && (q.p != null || pre.has(q))));
+    const empty = b => vp.every(({ pieces, pre }) => !pieces.some(q => q.s >= barStart(b) && q.s < barStart(b + 1) && (q.p != null || pre.has(q))));
     const segs = [];
     for (let b = intro ? first : pickup ? -1 : 0; b < bars;) {
-      if (!(pickup && b === -1) && empty(b)) { let e = b + 1; while (e < bars && empty(e) && !secAt.has(e)) e++; segs.push({ b, z: e - b }); b = e; }
+      if (!(pickup && b === -1) && empty(b)) { let e = b + 1; while (e < bars && empty(e) && !secAt.has(e) && !meterChg(e)) e++; segs.push({ b, z: e - b }); b = e; }
       else segs.push({ b: b++, z: 1 });
     }
     let cur = [], n = 0;
@@ -131,10 +131,11 @@ export function buildAbcMap({ title = '', sub = '', tempo = 92, key = 'C', bars,
         const bar = new Map(), bk = vkey(b);
         if (vi === 0 && secAt.has(b)) mus += `[P:${secAt.get(b)}] `;
         if (!v.drum && kChg(b) && b !== segs[0].b) mus += `[K:${bk}] `; // 조바꿈: 새 조표
+        if (meterChg(b)) { const sg = meterSigOf(meterAtBar(b)); mus += `[M:${sg.num}/${sg.den}] `; } // 변박자: 새 박자표
         const endBar = b === bars - 1 ? '|]' : (secAt.has(b + 1) || kChg(b + 1)) && b >= first && !(pickup && b === -1) ? '||' : '|';
-        const inBar = pieces.filter(q => q.s >= b * BAR && q.s < (b + 1) * BAR);
+        const inBar = pieces.filter(q => q.s >= barStart(b) && q.s < barStart(b + 1));
         if (!inBar.length) { mus += ' ' + endBar + ' '; continue; }
-        const group = beamGroups(inBar, b * BAR);
+        const group = useMeter(meterAtBar(b), () => beamGroups(inBar, barStart(b)));
         let lastG = null;
         inBar.forEach((q, k) => {
           // 빔: 같은 박(또는 8분음표 넷이 이어진 반 마디) 안의 짧은 음표는 띄어 쓰지 않아 꼬리를 묶는다
@@ -214,7 +215,7 @@ export function buildMusicXML({ title, sub, tempo, key, bars, parts, pickup = ME
   if (intro) pickup = 0;
   const first = intro ? -intro : pickup ? -1 : 0;
   const lastEnd = Math.max(0, ...parts.flatMap(p => p.notes.map(n => n.s + n.d)));
-  const total = bars * BAR - (pickup && lastEnd <= bars * BAR - pickup ? pickup : 0), start = intro ? -intro * BAR : -pickup;
+  const total = barStart(bars) - (pickup && lastEnd <= barStart(bars) - pickup ? pickup : 0), start = intro ? -intro * BAR : -pickup;
   const secAt = new Map((sections || []).map(q => [q.bar, q.name]));
   const k = KEYS[key] || KEYS.C;
   let x = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -262,7 +263,11 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
     for (let b = b0; b < bars; b++) {
       const num = intro ? b - first + 1 : b + 1;
       x += `    <measure number="${num}"${!intro && b < 0 ? ' implicit="yes"' : ''}>\n`;
-      if (b > b0 && b > 0 && kAt(b) !== kAt(b - 1)) { pkey = pkAt(b); pk = KEYS[pkey] || k; if (!p.drum) x += `      <attributes><key><fifths>${pk.fifths}</fifths><mode>major</mode></key></attributes>\n`; } // 조바꿈
+      { // 조바꿈 · 변박자: 그 마디 첫머리에 새 조표·박자표
+        const kc = b > b0 && b > 0 && kAt(b) !== kAt(b - 1), mc = b > b0 && meterChg(b);
+        if (kc) { pkey = pkAt(b); pk = KEYS[pkey] || k; }
+        if ((kc && !p.drum) || mc) { const sg = meterSigOf(meterAtBar(b)); x += `      <attributes>${kc && !p.drum ? `<key><fifths>${pk.fifths}</fifths><mode>major</mode></key>` : ''}${mc ? `<time><beats>${sg.num}</beats><beat-type>${sg.den}</beat-type></time>` : ''}</attributes>\n`; }
+      }
       if (i === 0 && secAt.has(b)) x += `      <direction placement="above"><direction-type><rehearsal enclosure="rectangle">${esc(secAt.get(b))}</rehearsal></direction-type></direction>\n`;
       if (b === b0) {
         const clef = p.drum ? '<sign>percussion</sign><line>2</line>' : p.clef === 'bass' ? '<sign>F</sign><line>4</line>' : p.clef === 'alto' ? '<sign>C</sign><line>3</line>' : p.clef === 'treble-8' ? '<sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change>' : '<sign>G</sign><line>2</line>';
@@ -270,7 +275,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         x += `      <attributes><divisions>4</divisions><key><fifths>${pk.fifths}</fifths><mode>major</mode></key><time><beats>${meterSig().num}</beats><beat-type>${meterSig().den}</beat-type></time><clef>${clef}</clef>${tx}</attributes>\n`;
         if (i === 0) { const [bu, dot, pm] = tempoMark(tempo).xml; x += `      <direction placement="above"><direction-type><metronome><beat-unit>${bu}</beat-unit>${dot ? '<beat-unit-dot/>' : ''}<per-minute>${pm}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>\n`; }
       }
-      const inBar = pieces.filter(q => q.s >= b * BAR && q.s < (b + 1) * BAR);
+      const inBar = pieces.filter(q => q.s >= barStart(b) && q.s < barStart(b + 1));
       for (const q of inBar) {
         if (dir.has(q)) x += dir.get(q);
         if (p.chords) {
@@ -285,7 +290,7 @@ ${header && header.subtitle ? `  <credit page="1"><credit-type>subtitle</credit-
         }
         const [type, dot] = TYPE[q.d] || ['16th', 0];
         if (q.p == null) {
-          x += q.d === BAR ? `      <note><rest measure="yes"/><duration>${BAR}</duration><voice>1</voice></note>\n` : `      <note><rest/><duration>${q.d}</duration><voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}</note>\n`;
+          x += q.d === barLen(b) && q.s === barStart(b) ? `      <note><rest measure="yes"/><duration>${q.d}</duration><voice>1</voice></note>\n` : `      <note><rest/><duration>${q.d}</duration><voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}</note>\n`;
           continue;
         }
         if (p.slash) { // 리듬 사선(코드 기호 위에)
