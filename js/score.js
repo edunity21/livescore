@@ -1,5 +1,5 @@
 // LIVE SCORE · 악보 — abc 악보 글(화면 표시), MusicXML(뮤즈스코어)
-import { BAR, KEYS, METER, KEYMAP, keyAtBar, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=20';
+import { BAR, KEYS, METER, KEYMAP, keyAtBar, pc, toPieces, lyricFlow, shiftKey, chordName, QUAL, is44, beatStarts, meterSig, tempoMark } from './core.js?v=21';
 
 const SHARP_N = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
 const FLAT_N = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];

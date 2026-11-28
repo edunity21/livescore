@@ -1,5 +1,5 @@
 // LIVE SCORE · MIDI — 건반 연결(Web MIDI), MIDI 파일 읽기·쓰기
-import { BAR } from './core.js?v=20';
+import { BAR } from './core.js?v=21';
 
 // ── 건반 연결 ──
 export const midiState = { supported: !!navigator.requestMIDIAccess, access: null, inputs: [], error: null };

@@ -3,7 +3,7 @@
 //   기타는 한 사람에 한 보표(1 = 리듬·코드, 2 = 리드·아르페지오), 드럼은 두 손 + 큰북
 // · MIDI(수노 스템)는 그대로 옮기지 않고 재료(화음·리듬·윤곽)로만 써서 이 규칙으로 다시 계산한다
 // · 구간(Intro/Verse/Chorus)마다 역할·셈여림·주법을 정한다 — 소리가 조금 비어도 실제로 연주할 수 있는 악보
-import { BAR, LINE, KEYS, MAJOR, pc, chordTones, bassOf, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=20';
+import { BAR, LINE, KEYS, MAJOR, pc, chordTones, bassOf, keyAtS, is44, METER, groupSplit, beatStarts, groupStarts } from './core.js?v=21';
 
 // ── 박자 도우미 ── 4/4는 예전 무늬 그대로, 다른 박자(홑·겹·혼합)는 박·묶음에 맞춰 만든다
 const H2 = c => is44() ? (c.d >= 16 ? [[0, 8], [8, 8]] : [[0, c.d]]) : (c.d >= BAR ? groupSplit(c.d) : [[0, c.d]]); // 반 마디씩 → 묶음씩
@@ -199,24 +199,61 @@ export function orchestrate(o) {
   const mainK = sections.some(x => kindOf(x.name) === 'chorus') ? 'chorus' : 'verse';
   const octFit = (ns, [lo, hi]) => { if (!ns.length) return []; const med = ns.map(n => n.p).sort((a, b) => a - b)[ns.length >> 1]; const sh = Math.round(((lo + hi) / 2 - med) / 12) * 12; return mono(ns.map(n => ({ ...n, p: fit(n.p + sh, lo, hi) }))); };
   const melIn = k => melody.filter(m => m.p != null && m.s >= 0 && kindAt(m.s) === k).map(m => ({ p: m.p, s: m.s, d: m.d }));
-  const withThird = (ns, range, n) => n < 2 ? ns : ns.map(x => { const q = below3(x.p, tonic); return q == null || q < range[0] ? x : { ...x, chord: [q, x.p] }; });
+  // 그 자리의 조 · 그 자리 화음(전조·반음계 화성에서도 어울리게)
+  const tonicAt = s => (KEYS[keyAtS(Math.max(0, s), key)] || KEYS.C).tonic;
+  const chordAt = s => { let c = null; for (const x of chords) { if (x.s <= s) c = x; else break; } return c; };
+  // 아랫성부(3도·6도 아래): 그 자리 화음음 가운데 3~9반음 아래에서 가장 가까운 음 — 없으면 음계 3도
+  const harmBelow = (p, s) => { const c = chordAt(s); if (c) { const t = chordTones(c, tonic); for (let d = 3; d <= 9; d++) if (t.includes(pc(p - d))) return p - d; } return below3(p, tonicAt(s)); };
+  const withThird = (ns, range, n) => n < 2 ? ns : ns.map(x => { const q = harmBelow(x.p, x.s); return q == null || q < range[0] ? x : { ...x, chord: [q, x.p] }; });
   // 학생 연주용으로 쉽게: 16분음표처럼 아주 짧은 음은 앞 음에 붙인다
   const easy = ns => { const out = []; mono(ns).forEach(n => { const l = out[out.length - 1]; if (n.d < 2 && l && l.s + l.d >= n.s) { l.d += n.d; return; } out.push({ ...n, d: Math.max(2, n.d) }); }); return mono(out); };
   // 길잡이음 대선율: 화음의 3음을 앞 음에서 가장 가깝게 잇고, 박을 나누면 이웃 화음음으로 살짝 움직인다
+  // 대선율(v21): 길잡이음(3음 · 7화음이면 7음)을 가까이 잇고(7음은 다음 화음의 3음으로 2도 내려 해결),
+  //  노래가 길게 끌거나 쉬는 곳에서는 다음 길잡이음까지 음계로 걸어가며(경과음) 노래와 반대로 움직인다 · 노래와 2도로 부딪치면 다른 화음음
+  const melAt = s => { const m = melody.find(x => x.p != null && x.s <= s && x.s + x.d > s); return m ? m.p : null; };
+  const melBusy = (a, b) => melody.filter(x => x.p != null && x.s >= a && x.s < b).length;
+  const scaleNear = (p, s, dir) => { const t = tonicAt(s); let q = p; do { q += dir; } while (!MAJOR.includes(pc(q - t)) && Math.abs(q - p) < 3); return q; };
   function guide(range, pat, players = 1) {
     const out = []; let prev = Math.round((range[0] + range[1]) / 2);
-    chords.forEach(c => {
-      const t = chordTones(c, tonic);
-      const g = nearest(tonesIn([t[1]], range[0], range[1]), prev) ?? nearest(tonesIn(t, range[0], range[1]), prev);
-      if (g == null) return; prev = g;
+    const gOf = (c, from) => { const t = chordTones(c, tonic), want = t.length > 3 ? [t[1], t[3]] : [t[1]]; return nearest(tonesIn(want, range[0], range[1]), from) ?? nearest(tonesIn(t, range[0], range[1]), from); };
+    const clash = (p, s) => { const m = melAt(s); return m != null && Math.abs(p - m) <= 2 && Math.abs(p - m) > 0; };
+    chords.forEach((c, ci) => {
+      const t = chordTones(c, tonic); let g = gOf(c, prev);
+      if (g == null) return;
+      if (clash(g, c.s)) { const alt = nearest(tonesIn(t, range[0], range[1]).filter(x => !clash(x, c.s)), g); if (alt != null) g = alt; }
+      prev = g;
+      const nc = chords[ci + 1], quiet = melBusy(c.s + (c.d >> 1), c.s + c.d) <= 1; // 뒤 반이 조용하면 걸어간다
+      if (c.s !== lastS && nc && quiet && c.d >= 8 && kindAt(c.s) !== 'intro') {
+        const half = c.d >> 1, tgt = gOf(nc, g) ?? g, dir = Math.sign(tgt - g) || (melAt(c.s) != null && melAt(c.s) > g ? -1 : 1);
+        out.push({ p: g, s: c.s, d: half });
+        let q = g; const step = half >= 8 ? 4 : 2;
+        for (let u = half; u < c.d; u += step) { const nx = scaleNear(q, c.s + u, dir); if ((dir > 0 && nx >= tgt) || (dir < 0 && nx <= tgt) || nx < range[0] || nx > range[1]) break; q = nx; if (!clash(q, c.s + u)) out.push({ p: q, s: c.s + u, d: Math.min(step, c.d - u) }); }
+        const last = out[out.length - 1]; if (last.s + last.d < c.s + c.d) last.d = c.s + c.d - last.s;
+        return;
+      }
       (c.s === lastS ? [[0, c.d]] : pat(c)).forEach(([u, d], k) => {
         if (u >= c.d) return;
-        let p = g; if (k % 2 === 1) { const a = nearest(tonesIn([t[0], t[2]], range[0], range[1]), g); if (a != null && Math.abs(a - g) <= 5) p = a; }
-        const lo = players > 1 ? nearest(tonesIn(t, Math.max(range[0], p - 9), p - 3), p - 5) : null; // 아랫성부도 악기 음역 안에서만
-        out.push({ p, s: c.s + u, d: Math.min(d, c.d - u), chord: lo != null ? [lo, p] : undefined });
+        let p = g; if (k % 2 === 1) { const a = nearest(tonesIn([t[0], t[2]], range[0], range[1]), g); if (a != null && Math.abs(a - g) <= 5 && !clash(a, c.s + u)) p = a; }
+        out.push({ p, s: c.s + u, d: Math.min(d, c.d - u) });
       });
     });
-    return mono(out).map(n => { const o = out.find(x => x.s === n.s && x.p === n.p); return o && o.chord ? { ...n, chord: o.chord } : n; });
+    const res = mono(out);
+    if (players > 1) res.forEach(n => { const q = harmBelow(n.p, n.s); if (q != null && q >= range[0]) n.chord = [q, n.p]; }); // 둘 이상이면 아랫성부도(악기 음역 안에서만)
+    return res;
+  }
+  // 베이스 진행(v21): 두 박 넘게 끄는 음은 다음 화음 앞 한 박을 경과음·반음 접근음으로(벌스는 음계 2도, 후렴은 반음)
+  function approachBass(ns, range) {
+    if (['dance', 'hiphop'].includes(genre) || !is44()) return ns;
+    const out = [];
+    mono(ns).forEach((n, i, arr) => {
+      const nx = arr[i + 1], k = kindAt(n.s); n = { ...n };
+      if (nx && n.s + n.d === nx.s && n.d >= 8 && k !== 'intro' && nx.s <= lastS && chords.some(c => c.s === nx.s) && nx.p !== n.p) {
+        const t = nx.p, up = t > n.p, a = (k === mainK && !soft) ? t + (up ? -1 : 1) : scaleNear(t, nx.s, up ? -1 : 1);
+        if (a >= range[0] && a <= range[1] && a !== n.p) { n.d -= 4; out.push(n); out.push({ p: a, s: n.s + n.d, d: 4 }); return; }
+      }
+      out.push(n);
+    });
+    return out;
   }
   const hookOr = (range, ns) => mono([...leadIn(range), ...ns]);
   const lastLong = (range, ns) => { const c = chords.find(x => x.s === lastS); if (!c) return ns; const t = chordTones(c, tonic), p = nearest(tonesIn([t[0]], range[0], range[1]), ns.length ? ns[ns.length - 1].p : range[0] + 7); return p == null ? ns : mono([...ns.filter(n => n.s < c.s), { p, s: c.s, d: c.d }]); };
@@ -236,7 +273,7 @@ export function orchestrate(o) {
       top = leadIn(info.range);
       top = mono([...top, ...octFit(melIn(mainK), info.range)]);
     }
-    const ns = top.map(x => { if (n < 2) return x; const q = below3(x.p, tonic); return q == null || q < info.range[0] ? x : { ...x, chord: [q, x.p] }; });
+    const ns = top.map(x => { if (n < 2) return x; const q = harmBelow(x.p, x.s); return q == null || q < info.range[0] ? x : { ...x, chord: [q, x.p] }; });
     add('flute', info, ns, { players: ens.flute, role: 'lead' });
   }
   // 리코더(반 전체도): 전주 훅 + 주 구간 노래 선율을 쉽게 — 2명 이상이면 3도 아래를 함께
@@ -299,7 +336,7 @@ export function orchestrate(o) {
       const pat = k === 'end' || k === 'intro' || k === 'verse' ? [[0, c.d, r]] : H2(c).map(([u, d], i) => [u, d, i % 2 ? up5(c, r) : r]);
       pat.forEach(([u, d, p]) => ns.push({ p: fit(p, ...info.range), s: c.s + u, d }));
     });
-    add('vc', info, mono(ns), { players: ens.cello, tech: [{ s: start, text: 'arco' }] });
+    add('vc', info, approachBass(mono(ns), info.range), { players: ens.cello, tech: [{ s: start, text: 'arco' }] });
   }
   // 기타: 1 = 리듬(전주 길게 울림 · 벌스 팜 뮤트 8분 · 후렴 스트로크), 2 = 리드(전주 훅 · 아르페지오)
   if (ens.guitar > 0) {
@@ -366,8 +403,20 @@ export function orchestrate(o) {
       let prev = null;
       const rhPat = { pop: [[0, 8], [8, 8]], rock: [[0, 4], [4, 4], [8, 4], [12, 4]], acoustic: [[0, 8], [8, 8]], ballad: 'broken', dance: [[2, 2], [6, 2], [10, 2], [14, 2]], hiphop: [[0, 16]] }[genre] || [[0, 8], [8, 8]];
       chords.forEach(c => {
-        const t = chordTones(c, tonic), v = closeVoicing(t, prev, 59, 79); prev = v;
+        const mTop = melAt(c.s), hiR = mTop != null ? Math.max(67, Math.min(79, mTop - 1)) : 79; // 오른손 화음은 노래 아래로
+        const t = chordTones(c, tonic), v = closeVoicing(t, prev, 55, hiR, 3); prev = v;
         const root = fit(bassOf(c, tonic), 40, 52), last = c.s === lastS, intro = kindAt(c.s) === 'intro';
+        if (is44() && !last && !intro && ['pop', 'acoustic', 'ballad', 'orch'].includes(genre)) { // 피아노다운 짜임(v21)
+          const k = kindAt(c.s), main = k === mainK, slow = genre === 'ballad' || genre === 'orch' || soft;
+          const cut = pat => pat.filter(([u]) => u < c.d).map(([u, d]) => [u, Math.min(d, c.d - u)]);
+          const rhP = slow ? (main ? [[0, 4], [4, 4], [8, 4], [12, 4]] : [[0, 8], [8, 8]]) : (main ? [[0, 4], [4, 2], [6, 2], [8, 4], [12, 2], [14, 2]] : [[0, 6], [6, 2], [8, 8]]);
+          cut(rhP).forEach(([u, d]) => R.push({ p: v[0], s: c.s + u, d, chord: v }));
+          if (slow) { // 왼손 펼침화음(8분): 뿌리 · 5음 · 8도 · 10도
+            const th = t.length ? fit(t[1], root + 12, root + 23) : root + 16, seq = [root, up5(c, root), root + 12, th, root + 12, up5(c, root)];
+            for (let u = 0, i = 0; u < c.d; u += 2, i++) L.push({ p: seq[i % seq.length], s: c.s + u, d: 2 });
+          } else cut(main ? [[0, 6], [6, 2], [8, 6], [14, 2]] : [[0, 8], [8, 8]]).forEach(([u, d], i) => L.push({ p: main && i % 2 ? (i === 1 ? root + 12 : up5(c, root)) : root, s: c.s + u, d }));
+          return;
+        }
         let rh = last || intro ? [[0, c.d]] : rhPat;
         if (!is44() && rh !== 'broken' && !(last || intro)) rh = genre === 'rock' ? posIn(c, barPos('beats')) : genre === 'dance' ? posIn(c, barPos('off')).filter(([u]) => u > 0).map(([u]) => [u, 2]) : genre === 'hiphop' ? [[0, c.d]] : H2(c);
         if (rh === 'broken' && !is44()) posIn(c, barPos('beats')).forEach(([u, d], k) => R.push({ p: [v[0], v[1], v[2], v[1]][k % 4], s: c.s + u, d }));
@@ -404,7 +453,7 @@ export function orchestrate(o) {
     else {
       ns = (old.bass || []).filter(n => n.s >= 0).map(n => ({ ...n, p: fit(n.p, ...info.range) }));
       chords.filter(c => c.s < 0 || !old.bass).forEach(c => { const r = fit(bassOf(c, tonic), 28, 43); H2(c).forEach(([u, d]) => ns.push({ p: r, s: c.s + u, d })); });
-      ns = mono(ns);
+      ns = approachBass(mono(ns), info.range);
     }
     add('bass', info, ns, { disp: 12 });
   }
@@ -429,6 +478,15 @@ export function orchestrate(o) {
       const bar0 = hits.filter(h => h.s >= 0 && h.s < BAR).map(h => (h.kit.includes('crash') ? { ...h, kit: [...h.kit.filter(k => k !== 'crash'), 'hat'] } : h));
       for (let b = start; b < 0; b += BAR) bar0.forEach(h => hits.push({ s: b + h.s, kit: h.kit }));
       hits.push({ s: start, kit: ['crash', 'kick'] });
+    }
+    if (!(src.drums && src.drums.length) && is44()) { // 필인(v21): 구간이 바뀌기 앞 한 박은 작은북·탐으로 채우고, 새 구간 첫 박은 심벌
+      sections.forEach((x, i) => {
+        if (!i || x.s <= start || x.s > end) return;
+        const a = x.s - 4; hits = hits.filter(h => h.s < a || h.s >= x.s);
+        (soft ? [[0, ['snare']], [2, ['tom']]] : [[0, ['snare']], [1, ['snare']], [2, ['tom']], [3, ['tom']]]).forEach(([u, kit]) => hits.push({ s: a + u, kit: [...kit, ...(u === 0 ? ['kick'] : [])] }));
+        hits = hits.filter(h => h.s !== x.s); hits.push({ s: x.s, kit: ['crash', 'kick'] });
+      });
+      if (lastS > start) { hits = hits.filter(h => h.s !== lastS); hits.push({ s: lastS, kit: ['crash', 'kick'] }); }
     }
     add('drums', info, drumPart(hits, start, end), { drum: true });
   }
